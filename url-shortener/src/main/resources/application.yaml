@@ -1,3 +1,5 @@
 spring:
   application:
     name: url-shortener
+  messages:
+    basename: i18n/messages

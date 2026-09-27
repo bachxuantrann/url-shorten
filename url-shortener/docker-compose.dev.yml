@@ -1,0 +1,131 @@
+# =============================================
+#  docker-compose.dev.yml
+#  Mục đích: Chạy hạ tầng (Infrastructure) cho môi trường DEV local.
+#  Không build/chạy BE — Spring Boot chạy trực tiếp từ IDE.
+#
+#  Cách dùng:
+#    docker compose -f docker-compose.dev.yml up -d
+#    docker compose -f docker-compose.dev.yml down
+# =============================================
+
+name: url-shortener-dev
+
+services:
+
+  # ===== PostgreSQL =====
+  postgres:
+    image: postgres:16-alpine
+    container_name: url_shortener_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: url_shortener_db
+      POSTGRES_USER: auradev
+      POSTGRES_PASSWORD: auradev123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auradev -d url_shortener_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - dev_network
+
+  # ===== Redis =====
+  redis:
+    image: redis:7-alpine
+    container_name: url_shortener_redis_dev
+    restart: unless-stopped
+    command: redis-server --loglevel warning
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dev_network
+
+  # ===== Zookeeper (required by Kafka) =====
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: url_shortener_zookeeper_dev
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_dev_data:/var/lib/zookeeper/data
+      - zookeeper_dev_log:/var/lib/zookeeper/log
+    networks:
+      - dev_network
+
+  # ===== Kafka =====
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: url_shortener_kafka_dev
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_dev_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - dev_network
+
+  # ===== Kafka UI (tuỳ chọn — giao diện quản lý Kafka) =====
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: url_shortener_kafka_ui_dev
+    restart: unless-stopped
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    ports:
+      - "8090:8080"
+    networks:
+      - dev_network
+
+# ===== VOLUMES =====
+volumes:
+  postgres_dev_data:
+    driver: local
+  redis_dev_data:
+    driver: local
+  zookeeper_dev_data:
+    driver: local
+  zookeeper_dev_log:
+    driver: local
+  kafka_dev_data:
+    driver: local
+
+# ===== NETWORKS =====
+networks:
+  dev_network:
+    driver: bridge

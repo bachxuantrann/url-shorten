@@ -1,0 +1,196 @@
+# =============================================
+#  docker-compose.prod.yml
+#  Mục đích: Full-stack production deployment.
+#  Bao gồm: build BE từ Dockerfile + tất cả infra.
+#
+#  Yêu cầu: File .env.prod trong cùng thư mục (không commit lên git)
+#
+#  Cách dùng:
+#    docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#    docker compose -f docker-compose.prod.yml down
+#
+#  Cấu trúc .env.prod:
+#    DB_NAME=url_shortener_prod
+#    DB_USERNAME=auradev_prod
+#    DB_PASSWORD=<strong-password>
+#    REDIS_PASSWORD=<strong-redis-password>
+#    JWT_SECRET=<64-byte-hex-secret>
+#    KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+# =============================================
+
+name: url-shortener-prod
+
+services:
+
+  # ===== Spring Boot Application =====
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: url_shortener_app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      # Database
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # Kafka
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      # JWT
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_TOKEN_EXPIRY: 900000
+      JWT_REFRESH_TOKEN_EXPIRY: 604800000
+      JWT_ISSUER: url-shortener-prod
+      # Server
+      SERVER_PORT: 8080
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    networks:
+      - prod_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ===== PostgreSQL =====
+  postgres:
+    image: postgres:16-alpine
+    container_name: url_shortener_postgres_prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    expose:
+      - "5432"
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - prod_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ===== Redis =====
+  redis:
+    image: redis:7-alpine
+    container_name: url_shortener_redis_prod
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --loglevel warning
+    expose:
+      - "6379"
+    volumes:
+      - redis_prod_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - prod_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===== Zookeeper =====
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: url_shortener_zookeeper_prod
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    expose:
+      - "2181"
+    volumes:
+      - zookeeper_prod_data:/var/lib/zookeeper/data
+      - zookeeper_prod_log:/var/lib/zookeeper/log
+    networks:
+      - prod_network
+
+  # ===== Kafka =====
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: url_shortener_kafka_prod
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+    expose:
+      - "29092"
+    volumes:
+      - kafka_prod_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:29092", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - prod_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+# ===== VOLUMES =====
+volumes:
+  postgres_prod_data:
+    driver: local
+  redis_prod_data:
+    driver: local
+  zookeeper_prod_data:
+    driver: local
+  zookeeper_prod_log:
+    driver: local
+  kafka_prod_data:
+    driver: local
+
+# ===== NETWORKS =====
+networks:
+  prod_network:
+    driver: bridge

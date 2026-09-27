@@ -1,5 +1,30 @@
 spring:
   application:
     name: url-shortener
+  profiles:
+    active: dev
+
+  # ===== i18n =====
   messages:
-    basename: i18n/messages
+    basename: i18n/message
+    encoding: UTF-8
+    use-code-as-default-message: false
+
+  # ===== JPA =====
+  jpa:
+    open-in-view: false
+
+  # ===== Jackson =====
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+
+# ===== Server =====
+server:
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true

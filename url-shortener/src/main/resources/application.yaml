@@ -15,16 +15,14 @@ spring:
     open-in-view: false
 
   # ===== Jackson =====
+  # Serialization features (write-dates-as-timestamps, fail-on-unknown-properties)
+  # được cấu hình qua JacksonConfig.java để tránh IntelliJ enum-key false positive
   jackson:
     default-property-inclusion: non_null
-    serialization:
-      write-dates-as-timestamps: false
-    deserialization:
-      fail-on-unknown-properties: false
+
+  # ===== Encoding (Spring Boot 3+) =====
+  mandatory-file-encoding: UTF-8
 
 # ===== Server =====
 server:
-  servlet:
-    encoding:
-      charset: UTF-8
-      force: true
+  port: ${SERVER_PORT:8080}

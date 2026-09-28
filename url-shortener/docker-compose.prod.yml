@@ -9,13 +9,14 @@
 #    docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 #    docker compose -f docker-compose.prod.yml down
 #
-#  Cấu trúc .env.prod:
+#  Cấu trúc .env.prod (xem .env.prod.example để biết thêm):
 #    DB_NAME=url_shortener_prod
 #    DB_USERNAME=auradev_prod
 #    DB_PASSWORD=<strong-password>
 #    REDIS_PASSWORD=<strong-redis-password>
 #    JWT_SECRET=<64-byte-hex-secret>
 #    KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+#    KAFKA_CLUSTER_ID=<base64-uuid>  # tạo bằng: kafka-storage random-uuid
 # =============================================
 
 name: url-shortener-prod
@@ -50,15 +51,15 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       # JWT
       JWT_SECRET: ${JWT_SECRET}
-      JWT_ACCESS_TOKEN_EXPIRY: 900000
-      JWT_REFRESH_TOKEN_EXPIRY: 604800000
-      JWT_ISSUER: url-shortener-prod
+      JWT_ACCESS_TOKEN_EXPIRY: ${JWT_ACCESS_TOKEN_EXPIRY:-900000}
+      JWT_REFRESH_TOKEN_EXPIRY: ${JWT_REFRESH_TOKEN_EXPIRY:-604800000}
+      JWT_ISSUER: ${JWT_ISSUER:-url-shortener-prod}
       # Server
-      SERVER_PORT: 8080
+      SERVER_PORT: ${SERVER_PORT:-8080}
     ports:
-      - "8080:8080"
+      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${SERVER_PORT:-8080}/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -127,38 +128,32 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ===== Zookeeper =====
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.6.0
-    container_name: url_shortener_zookeeper_prod
-    restart: unless-stopped
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    expose:
-      - "2181"
-    volumes:
-      - zookeeper_prod_data:/var/lib/zookeeper/data
-      - zookeeper_prod_log:/var/lib/zookeeper/log
-    networks:
-      - prod_network
-
-  # ===== Kafka =====
+  # ===== Kafka (KRaft mode — no Zookeeper) =====
   kafka:
     image: confluentinc/cp-kafka:7.6.0
     container_name: url_shortener_kafka_prod
     restart: unless-stopped
-    depends_on:
-      - zookeeper
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # KRaft — không cần Zookeeper
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID}
+
+      # Listeners (prod: không expose ra ngoài)
+      KAFKA_LISTENERS: PLAINTEXT_INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT_INTERNAL://kafka:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT_INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      # Topic / replication
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_RETENTION_HOURS: ${KAFKA_LOG_RETENTION_HOURS:-168}
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
     expose:
       - "29092"
     volumes:
@@ -182,10 +177,6 @@ volumes:
   postgres_prod_data:
     driver: local
   redis_prod_data:
-    driver: local
-  zookeeper_prod_data:
-    driver: local
-  zookeeper_prod_log:
     driver: local
   kafka_prod_data:
     driver: local

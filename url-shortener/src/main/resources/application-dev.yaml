@@ -1,9 +1,9 @@
 spring:
   # ===== DataSource =====
   datasource:
-    url: jdbc:postgresql://localhost:5432/url_shortener_db
-    username: auradev
-    password: auradev123
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:url_shortener_db}
+    username: ${DB_USERNAME:auradev}
+    password: ${DB_PASSWORD:auradev123}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
@@ -25,9 +25,9 @@ spring:
   # ===== Redis =====
   data:
     redis:
-      host: localhost
-      port: 6379
-      password:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
       timeout: 5000ms
       lettuce:
         pool:
@@ -37,7 +37,7 @@ spring:
 
   # ===== Kafka =====
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -49,17 +49,13 @@ spring:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
-# ===== Server =====
-server:
-  port: 8080
-
 # ===== App Custom Properties =====
 app:
   jwt:
-    secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
-    access-token-expiry: 900000        # 15 minutes in ms
-    refresh-token-expiry: 604800000    # 7 days in ms
-    issuer: url-shortener-dev
+    secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+    access-token-expiry: ${JWT_ACCESS_TOKEN_EXPIRY:900000}        # 15 minutes in ms
+    refresh-token-expiry: ${JWT_REFRESH_TOKEN_EXPIRY:604800000}   # 7 days in ms
+    issuer: ${JWT_ISSUER:url-shortener-dev}
 
 # ===== Logging =====
 logging:

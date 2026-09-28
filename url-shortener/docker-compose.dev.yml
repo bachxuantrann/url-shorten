@@ -18,15 +18,15 @@ services:
     container_name: url_shortener_postgres_dev
     restart: unless-stopped
     environment:
-      POSTGRES_DB: url_shortener_db
-      POSTGRES_USER: auradev
-      POSTGRES_PASSWORD: auradev123
+      POSTGRES_DB: ${DB_NAME:-url_shortener_db}
+      POSTGRES_USER: ${DB_USERNAME:-auradev}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-auradev123}
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_dev_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U auradev -d url_shortener_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-auradev} -d ${DB_NAME:-url_shortener_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -41,7 +41,7 @@ services:
     restart: unless-stopped
     command: redis-server --loglevel warning
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_dev_data:/data
     healthcheck:
@@ -52,37 +52,31 @@ services:
     networks:
       - dev_network
 
-  # ===== Zookeeper (required by Kafka) =====
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.6.0
-    container_name: url_shortener_zookeeper_dev
-    restart: unless-stopped
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-    volumes:
-      - zookeeper_dev_data:/var/lib/zookeeper/data
-      - zookeeper_dev_log:/var/lib/zookeeper/log
-    networks:
-      - dev_network
-
-  # ===== Kafka =====
+  # ===== Kafka (KRaft mode — no Zookeeper) =====
   kafka:
     image: confluentinc/cp-kafka:7.6.0
     container_name: url_shortener_kafka_dev
     restart: unless-stopped
-    depends_on:
-      - zookeeper
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # KRaft — không cần Zookeeper
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}
+
+      # Listeners
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_INTERNAL://0.0.0.0:29092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      # Topic / replication
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
     ports:
       - "9092:9092"
     volumes:
@@ -102,11 +96,11 @@ services:
     container_name: url_shortener_kafka_ui_dev
     restart: unless-stopped
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
-      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
     ports:
       - "8090:8080"
     networks:
@@ -117,10 +111,6 @@ volumes:
   postgres_dev_data:
     driver: local
   redis_dev_data:
-    driver: local
-  zookeeper_dev_data:
-    driver: local
-  zookeeper_dev_log:
     driver: local
   kafka_dev_data:
     driver: local

@@ -60,10 +60,6 @@ public class User {
     @Column(name = "full_name", length = 100)
     private String fullName;
 
-    /** URL ảnh đại diện */
-    @Column(name = "avatar_url", length = 500)
-    private String avatarUrl;
-
     /**
      * Trạng thái tài khoản.
      * Mặc định: {@link UserStatusEnum#ACTIVE}

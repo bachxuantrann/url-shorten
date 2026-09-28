@@ -27,7 +27,6 @@ public class UserResponse {
     private String username;
     private String email;
     private String fullName;
-    private String avatarUrl;
     private UserStatusEnum status;
     private Set<RoleEnum> roles;
     private boolean emailVerified;

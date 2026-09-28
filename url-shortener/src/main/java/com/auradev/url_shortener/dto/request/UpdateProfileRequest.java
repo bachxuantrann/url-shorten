@@ -20,7 +20,4 @@ public class UpdateProfileRequest {
     @NotBlank(message = "{validation.email.required}")
     @Email(message = "{validation.email.invalid}")
     private String email;
-
-    /** URL ảnh đại diện — optional */
-    private String avatarUrl;
 }

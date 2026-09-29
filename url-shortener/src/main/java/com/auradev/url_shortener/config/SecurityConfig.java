@@ -1,12 +1,14 @@
 package com.auradev.url_shortener.config;
 
 import com.auradev.url_shortener.constant.AppConstant;
+import com.auradev.url_shortener.dto.response.ApiResponse;
 import com.auradev.url_shortener.exception.ErrorCode;
 import com.auradev.url_shortener.security.JwtAuthenticationFilter;
 import com.auradev.url_shortener.utils.TranslatorUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
@@ -41,6 +43,7 @@ import java.util.Map;
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
 @RequiredArgsConstructor
+@Slf4j
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
@@ -63,8 +66,9 @@ public class SecurityConfig {
                     .anyRequest().authenticated()
             )
 
-            // ===== 401 — Chưa xác thực =====
+
             .exceptionHandling(ex -> ex
+                    // ===== 401 — Chưa xác thực =====
                     .authenticationEntryPoint((request, response, authException) -> {
                         ErrorCode errorCode = ErrorCode.UNAUTHORIZED;
                         writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, errorCode);
@@ -112,16 +116,13 @@ public class SecurityConfig {
                 message = errorCode.getMessageKey();
             }
 
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("success",   false);
-            body.put("code",      errorCode.getCode());
-            body.put("message",   message);
-            body.put("data",      null);
-            body.put("timestamp", LocalDateTime.now().toString());
+            ApiResponse<Void> apiResponse = ApiResponse.error(errorCode, message);
 
-            response.getWriter().write(objectMapper.writeValueAsString(body));
+            response.getWriter().write(objectMapper.writeValueAsString(apiResponse));
+            response.getWriter().flush();
         } catch (Exception ex) {
             // fallback — không để exception ăn mất lỗi gốc
+            log.error("Cannot write error response to output stream", ex);
         }
     }
 }

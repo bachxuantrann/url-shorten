@@ -1,6 +1,7 @@
 package com.auradev.url_shortener.dto.response;
 
 import com.auradev.url_shortener.exception.ErrorCode;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -17,6 +18,7 @@ public class ApiResponse<T> {
     private String code; // Thêm trường code ở đây (Ví dụ: "SUCCESS", "USER_001",...)
     private String message;
     private T data;
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime timestamp;
 
     public static <T> ApiResponse<T> success(String message, T data) {

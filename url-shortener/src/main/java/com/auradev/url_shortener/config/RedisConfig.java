@@ -13,7 +13,7 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
  * <p>Định nghĩa hai bean {@link RedisTemplate}:
  * <ul>
  *   <li>{@code redisTemplate} – key/value đều là String (dùng cho JWT token cache)</li>
- *   <li>{@code jsonRedisTemplate} – key String, value JSON object (dùng cho cache user)</li>
+ *   <li>{@code jsonRedisTemplate} – key String, value JSON object (dùng cho cache object)</li>
  * </ul>
  */
 @Configuration

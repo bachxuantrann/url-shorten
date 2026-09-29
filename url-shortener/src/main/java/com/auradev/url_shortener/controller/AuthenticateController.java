@@ -34,7 +34,8 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class AuthenticateController {
 
-    private final AuthService authService;
+    private final AuthService     authService;
+    private final TranslatorUtils translator;
 
     /**
      * POST /api/v1/auth/register
@@ -45,7 +46,7 @@ public class AuthenticateController {
             @Valid @RequestBody RegisterRequest request
     ) {
         UserResponse user    = authService.register(request);
-        String message       = TranslatorUtils.toLocale("api.success.user_registered");
+        String message       = translator.toLocale("api.success.user_registered");
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(ApiResponse.success(message, user));
@@ -60,7 +61,7 @@ public class AuthenticateController {
             @Valid @RequestBody LoginRequest request
     ) {
         LoginResponse loginResponse = authService.login(request);
-        String message              = TranslatorUtils.toLocale("api.success.login");
+        String message              = translator.toLocale("api.success.login");
         return ResponseEntity.ok(ApiResponse.success(message, loginResponse));
     }
 
@@ -73,7 +74,7 @@ public class AuthenticateController {
             @Valid @RequestBody RefreshTokenRequest request
     ) {
         TokenResponse tokenResponse = authService.refreshToken(request);
-        String message              = TranslatorUtils.toLocale("api.success.token_refreshed");
+        String message              = translator.toLocale("api.success.token_refreshed");
         return ResponseEntity.ok(ApiResponse.success(message, tokenResponse));
     }
 
@@ -88,7 +89,7 @@ public class AuthenticateController {
     ) {
         String accessToken = extractToken(authHeader);
         authService.logout(accessToken);
-        String message = TranslatorUtils.toLocale("api.success.logout");
+        String message = translator.toLocale("api.success.logout");
         return ResponseEntity.ok(ApiResponse.success(message, null));
     }
 
@@ -102,7 +103,7 @@ public class AuthenticateController {
     ) {
         String accessToken = extractToken(authHeader);
         authService.logoutAllDevices(accessToken);
-        String message = TranslatorUtils.toLocale("api.success.logout_all");
+        String message = translator.toLocale("api.success.logout_all");
         return ResponseEntity.ok(ApiResponse.success(message, null));
     }
 

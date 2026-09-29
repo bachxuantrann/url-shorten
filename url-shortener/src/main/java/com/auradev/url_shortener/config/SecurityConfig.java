@@ -47,7 +47,8 @@ import java.util.Map;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
-    private final ObjectMapper objectMapper;
+    private final ObjectMapper            objectMapper;
+    private final TranslatorUtils         translator;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -111,7 +112,7 @@ public class SecurityConfig {
 
             String message;
             try {
-                message = TranslatorUtils.toLocale(errorCode.getMessageKey());
+                message = translator.toLocale(errorCode.getMessageKey());
             } catch (Exception e) {
                 message = errorCode.getMessageKey();
             }

@@ -2,6 +2,7 @@ package com.auradev.url_shortener.exception;
 
 import com.auradev.url_shortener.dto.response.ApiResponse;
 import com.auradev.url_shortener.utils.TranslatorUtils;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -34,7 +35,10 @@ import java.util.Map;
  */
 @Slf4j
 @RestControllerAdvice
+@RequiredArgsConstructor
 public class GlobalExceptionHandler {
+
+    private final TranslatorUtils translator;
 
     // ===========================
     //  1. VALIDATION (400)
@@ -62,7 +66,7 @@ public class GlobalExceptionHandler {
         ApiResponse<Map<String, String>> response = ApiResponse.<Map<String, String>>builder()
                 .success(false)
                 .code(errorCode.getCode())
-                .message(TranslatorUtils.toLocale(errorCode.getMessageKey()))
+                .message(translator.toLocale(errorCode.getMessageKey()))
                 .data(errors)
                 .timestamp(LocalDateTime.now())
                 .build();
@@ -80,7 +84,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AppException.class)
     public ResponseEntity<ApiResponse<Void>> handleAppException(AppException ex) {
         ErrorCode errorCode       = ex.getErrorCode();
-        String translatedMessage  = TranslatorUtils.toLocale(errorCode.getMessageKey(), ex.getArgs());
+        String translatedMessage  = translator.toLocale(errorCode.getMessageKey(), ex.getArgs());
 
         log.warn("AppException: code={}, message={}", errorCode.getCode(), translatedMessage);
 
@@ -101,7 +105,7 @@ public class GlobalExceptionHandler {
             AccessDeniedException ex
     ) {
         ErrorCode errorCode      = ErrorCode.FORBIDDEN;
-        String translatedMessage = TranslatorUtils.toLocale(errorCode.getMessageKey());
+        String translatedMessage = translator.toLocale(errorCode.getMessageKey());
 
         log.warn("Access denied: {}", ex.getMessage());
         return new ResponseEntity<>(
@@ -118,7 +122,7 @@ public class GlobalExceptionHandler {
             AuthenticationException ex
     ) {
         ErrorCode errorCode      = ErrorCode.UNAUTHORIZED;
-        String translatedMessage = TranslatorUtils.toLocale(errorCode.getMessageKey());
+        String translatedMessage = translator.toLocale(errorCode.getMessageKey());
 
         log.warn("Authentication failed: {}", ex.getMessage());
         return new ResponseEntity<>(
@@ -139,7 +143,7 @@ public class GlobalExceptionHandler {
             MissingRequestHeaderException ex
     ) {
         ErrorCode errorCode      = ErrorCode.VALIDATION_FAILED;
-        String translatedMessage = TranslatorUtils.toLocale(errorCode.getMessageKey());
+        String translatedMessage = translator.toLocale(errorCode.getMessageKey());
 
         Map<String, String> detail = Map.of("header", ex.getHeaderName() + " header is required");
         log.debug("Missing request header: {}", ex.getHeaderName());
@@ -156,7 +160,7 @@ public class GlobalExceptionHandler {
             MethodArgumentTypeMismatchException ex
     ) {
         ErrorCode errorCode      = ErrorCode.VALIDATION_FAILED;
-        String translatedMessage = TranslatorUtils.toLocale(errorCode.getMessageKey());
+        String translatedMessage = translator.toLocale(errorCode.getMessageKey());
 
         log.debug("Type mismatch: param={}, value={}", ex.getName(), ex.getValue());
         return new ResponseEntity<>(
@@ -176,7 +180,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnknownException(Exception ex) {
         ErrorCode errorCode      = ErrorCode.UNKNOWN_ERROR;
-        String translatedMessage = TranslatorUtils.toLocale(errorCode.getMessageKey());
+        String translatedMessage = translator.toLocale(errorCode.getMessageKey());
 
         // Log full stack trace — KHÔNG expose detail này ra client
         log.error("Unhandled exception: {}", ex.getMessage(), ex);

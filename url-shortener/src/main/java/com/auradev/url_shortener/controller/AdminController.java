@@ -37,7 +37,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AdminController {
 
-    private final UserService userService;
+    private final UserService     userService;
+    private final TranslatorUtils translator;
 
     // ===========================
     //  USER MANAGEMENT
@@ -93,7 +94,7 @@ public class AdminController {
     @PutMapping("/users/{id}/lock")
     public ResponseEntity<ApiResponse<Void>> lockUser(@PathVariable UUID id) {
         userService.lockUser(id);
-        String message = TranslatorUtils.toLocale("api.success.user_locked");
+        String message = translator.toLocale("api.success.user_locked");
         return ResponseEntity.ok(ApiResponse.success(message, null));
     }
 
@@ -104,7 +105,7 @@ public class AdminController {
     @PutMapping("/users/{id}/unlock")
     public ResponseEntity<ApiResponse<Void>> unlockUser(@PathVariable UUID id) {
         userService.unlockUser(id);
-        String message = TranslatorUtils.toLocale("api.success.user_unlocked");
+        String message = translator.toLocale("api.success.user_unlocked");
         return ResponseEntity.ok(ApiResponse.success(message, null));
     }
 }

@@ -30,7 +30,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserController {
 
-    private final UserService userService;
+    private final UserService     userService;
+    private final TranslatorUtils translator;
 
     /**
      * GET /api/v1/users/me
@@ -55,7 +56,7 @@ public class UserController {
     ) {
         UUID userId = getAuthenticatedUserId(request);
         UserResponse updated = userService.updateProfile(userId, updateRequest);
-        String message = TranslatorUtils.toLocale("api.success.profile_updated");
+        String message = translator.toLocale("api.success.profile_updated");
         return ResponseEntity.ok(ApiResponse.success(message, updated));
     }
 
@@ -70,7 +71,7 @@ public class UserController {
     ) {
         UUID userId = getAuthenticatedUserId(request);
         userService.changePassword(userId, changeRequest);
-        String message = TranslatorUtils.toLocale("api.success.password_changed");
+        String message = translator.toLocale("api.success.password_changed");
         return ResponseEntity.ok(ApiResponse.success(message, null));
     }
 

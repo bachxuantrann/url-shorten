@@ -11,7 +11,7 @@ public interface AppConstant {
     String API_PREFIX         = "/api/v1";
     String API_AUTH           = API_PREFIX + "/auth";
     String API_USERS          = API_PREFIX + "/users";
-    String API_ADMIN_USERS    = API_PREFIX + "/admin/users";
+    String API_ADMIN          = API_PREFIX + "/admin";
 
     // ===== JWT =====
     String BEARER_PREFIX      = "Bearer ";

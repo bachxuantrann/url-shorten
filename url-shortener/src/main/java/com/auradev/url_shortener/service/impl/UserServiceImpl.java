@@ -93,69 +93,6 @@ public class UserServiceImpl implements UserService {
     }
 
     // ===========================
-    //  ADMIN
-    // ===========================
-
-    @Override
-    @Transactional(readOnly = true)
-    public PageResponse<UserResponse> getAllUsers(
-            String keyword,
-            UserStatusEnum status,
-            RoleEnum role,
-            Pageable pageable
-    ) {
-        Page<User> page;
-
-        boolean hasKeyword = StringUtils.hasText(keyword);
-        boolean hasStatus  = status != null;
-        boolean hasRole    = role != null;
-
-        if (hasKeyword || hasStatus || hasRole) {
-            // Dùng query filter tổng hợp
-            page = userRepository.findWithFilters(
-                    hasKeyword ? keyword : null,
-                    hasStatus  ? status  : null,
-                    hasRole    ? role    : null,
-                    pageable
-            );
-        } else {
-            // Không có filter — lấy tất cả
-            page = userRepository.findAll(pageable);
-        }
-
-        Page<UserResponse> responsePage = page.map(userMapper::toUserResponse);
-        return PageResponse.of(responsePage);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public UserResponse getUserById(UUID userId) {
-        return userMapper.toUserResponse(findUserByIdOrThrow(userId));
-    }
-
-    @Override
-    @Transactional
-    public void lockUser(UUID userId) {
-        User user = findUserByIdOrThrow(userId);
-        if (user.getStatus() == UserStatusEnum.BANNED) {
-            return; // Đã bị khoá rồi
-        }
-        userRepository.updateStatus(userId, UserStatusEnum.BANNED);
-        log.info("[ADMIN] User locked: userId={}", userId);
-    }
-
-    @Override
-    @Transactional
-    public void unlockUser(UUID userId) {
-        User user = findUserByIdOrThrow(userId);
-        if (user.getStatus() == UserStatusEnum.ACTIVE) {
-            return; // Đang active rồi
-        }
-        userRepository.updateStatus(userId, UserStatusEnum.ACTIVE);
-        log.info("[ADMIN] User unlocked: userId={}", userId);
-    }
-
-    // ===========================
     //  PRIVATE HELPERS
     // ===========================
 

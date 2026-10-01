@@ -6,6 +6,7 @@ import com.auradev.url_shortener.dto.response.PageResponse;
 import com.auradev.url_shortener.dto.response.UserResponse;
 import com.auradev.url_shortener.enums.RoleEnum;
 import com.auradev.url_shortener.enums.UserStatusEnum;
+import com.auradev.url_shortener.service.AdminService;
 import com.auradev.url_shortener.service.UserService;
 import com.auradev.url_shortener.utils.TranslatorUtils;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,7 @@ import java.util.UUID;
 public class AdminController {
 
     private final UserService     userService;
+    private final AdminService adminService;
     private final TranslatorUtils translator;
 
     // ===========================
@@ -73,7 +75,7 @@ public class AdminController {
                 : Sort.by(sortBy).descending();
         Pageable pageable = PageRequest.of(page, size, sort);
 
-        PageResponse<UserResponse> result = userService.getAllUsers(keyword, status, role, pageable);
+        PageResponse<UserResponse> result = adminService.getAllUsers(keyword, status, role, pageable);
         return ResponseEntity.ok(ApiResponse.success(null, result));
     }
 
@@ -83,7 +85,7 @@ public class AdminController {
      */
     @GetMapping("/users/{id}")
     public ResponseEntity<ApiResponse<UserResponse>> getUserById(@PathVariable UUID id) {
-        UserResponse user = userService.getUserById(id);
+        UserResponse user = adminService.getUserById(id);
         return ResponseEntity.ok(ApiResponse.success(null, user));
     }
 
@@ -93,7 +95,7 @@ public class AdminController {
      */
     @PutMapping("/users/{id}/lock")
     public ResponseEntity<ApiResponse<Void>> lockUser(@PathVariable UUID id) {
-        userService.lockUser(id);
+        adminService.lockUser(id);
         String message = translator.toLocale("api.success.user_locked");
         return ResponseEntity.ok(ApiResponse.success(message, null));
     }
@@ -104,7 +106,7 @@ public class AdminController {
      */
     @PutMapping("/users/{id}/unlock")
     public ResponseEntity<ApiResponse<Void>> unlockUser(@PathVariable UUID id) {
-        userService.unlockUser(id);
+        adminService.unlockUser(id);
         String message = translator.toLocale("api.success.user_unlocked");
         return ResponseEntity.ok(ApiResponse.success(message, null));
     }

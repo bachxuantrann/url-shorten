@@ -7,7 +7,6 @@ import com.auradev.url_shortener.dto.response.UserResponse;
 import com.auradev.url_shortener.enums.RoleEnum;
 import com.auradev.url_shortener.enums.UserStatusEnum;
 import com.auradev.url_shortener.service.AdminService;
-import com.auradev.url_shortener.service.UserService;
 import com.auradev.url_shortener.utils.TranslatorUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -38,7 +37,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AdminController {
 
-    private final UserService     userService;
     private final AdminService adminService;
     private final TranslatorUtils translator;
 
@@ -50,13 +48,13 @@ public class AdminController {
      * GET /api/v1/admin/users
      * Danh sách users có phân trang và filter.
      *
-     * @param keyword  tìm kiếm theo username/email/fullName (optional)
-     * @param status   lọc theo UserStatusEnum (optional)
-     * @param role     lọc theo RoleEnum (optional)
-     * @param page     số trang (0-indexed, default: 0)
-     * @param size     số phần tử mỗi trang (default: 20, max: 100)
-     * @param sortBy   field sắp xếp (default: createdAt)
-     * @param sortDir  hướng sắp xếp: asc/desc (default: desc)
+     * @param keyword tìm kiếm theo username/email/fullName (optional)
+     * @param status  lọc theo UserStatusEnum (optional)
+     * @param role    lọc theo RoleEnum (optional)
+     * @param page    số trang (0-indexed, default: 0)
+     * @param size    số phần tử mỗi trang (default: 20, max: 100)
+     * @param sortBy  field sắp xếp (default: createdAt)
+     * @param sortDir hướng sắp xếp: asc/desc (default: desc)
      */
     @GetMapping("/users")
     public ResponseEntity<ApiResponse<PageResponse<UserResponse>>> getAllUsers(

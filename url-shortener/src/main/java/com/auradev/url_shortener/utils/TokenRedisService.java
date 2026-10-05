@@ -13,18 +13,16 @@ import java.util.concurrent.TimeUnit;
 /**
  * Service quản lý JWT token trong Redis.
  *
- * <p>Hai loại key Redis:
+ * <p>Các loại key Redis:
  * <ul>
- *   <li>{@code RT:{userId}} → giá trị refresh token string, TTL = refreshTokenExpiry</li>
- *   <li>{@code BL:{jti}}   → giá trị "1" (revoked marker), TTL = thời gian còn lại của access token</li>
+ *   <li>{@code RT:{userId}}     → refresh token string, TTL = refreshTokenExpiry</li>
+ *   <li>{@code BL:{jti}}        → "1" (revoked marker), TTL = thời gian còn lại của access token</li>
+ *   <li>{@code REVOKE:{userId}} → epochMs của lần logoutAllDevices, TTL = access token max lifetime</li>
  * </ul>
  *
- * <p>Việc lưu refresh token theo userId cho phép:
- * <ul>
- *   <li>Invalidate tất cả session bằng cách xoá {@code RT:{userId}}</li>
- *   <li>Một user chỉ có một refresh token active tại một thời điểm (single-device policy).
- *       Để hỗ trợ multi-device, mở rộng key thành {@code RT:{userId}:{deviceId}}</li>
- * </ul>
+ * <p>Thiết kế single-session: {@code RT:{userId}} lưu một refresh token duy nhất.
+ * Login mới sẽ ghi đè RT cũ → chỉ session mới nhất có thể refresh.
+ * Để hỗ trợ multi-device, mở rộng key thành {@code RT:{userId}:{deviceId}}.
  */
 @Slf4j
 @Service
@@ -108,17 +106,50 @@ public class TokenRedisService {
     }
 
     // ===========================
-    //  LOGOUT ALL DEVICES
+    //  GLOBAL REVOKE (LOGOUT ALL)
     // ===========================
 
     /**
-     * Logout toàn bộ thiết bị: chỉ cần xoá refresh token.
-     * Access token sẽ tự expire theo TTL — không cần blacklist từng cái
-     * (trong single-device policy thì chỉ có một refresh token).
+     * Lưu timestamp revoke toàn bộ thiết bị của user (epoch milliseconds).
+     *
+     * <p>Bất kỳ access token nào có {@code issuedAt ≤ revokedAt} đều sẽ bị reject
+     * ngay tại {@link com.auradev.url_shortener.security.JwtAuthenticationFilter},
+     * không cần phải blacklist từng token riêng lẻ.
+     *
+     * <p>TTL = max access token lifetime: sau khoảng này không còn AT nào
+     * được issued trước timestamp còn valid → Redis tự clean.
+     *
+     * @param userId            ID của user
+     * @param accessTokenMaxTtl TTL = thời gian sống tối đa của một access token
      */
-    public void revokeAllUserTokens(UUID userId) {
-        deleteRefreshToken(userId);
-        log.info("Revoked all tokens for user {}", userId);
+    public void setGlobalRevokeTimestamp(UUID userId, Duration accessTokenMaxTtl) {
+        String key = AppConstant.REDIS_REVOKE_PREFIX + userId;
+        redisTemplate.opsForValue().set(
+                key,
+                String.valueOf(System.currentTimeMillis()),
+                accessTokenMaxTtl.toMillis(),
+                TimeUnit.MILLISECONDS
+        );
+        log.debug("Set global revoke timestamp for user {} (TTL={}s)", userId, accessTokenMaxTtl.getSeconds());
+    }
+
+    /**
+     * Lấy global revoke timestamp của user.
+     *
+     * @return epoch milliseconds, hoặc {@code null} nếu không có (chưa logoutAllDevices)
+     */
+    public Long getGlobalRevokeTimestamp(UUID userId) {
+        String val = redisTemplate.opsForValue().get(AppConstant.REDIS_REVOKE_PREFIX + userId);
+        return val != null ? Long.parseLong(val) : null;
+    }
+
+    /**
+     * Xoá global revoke timestamp (dùng khi user login lại để tránh reject AT mới).
+     * Không bắt buộc — AT mới luôn có issuedAt > revokedAt nên tự pass.
+     * Nhưng clean up Redis là practice tốt.
+     */
+    public void clearGlobalRevokeTimestamp(UUID userId) {
+        redisTemplate.delete(AppConstant.REDIS_REVOKE_PREFIX + userId);
     }
 
     // ===========================

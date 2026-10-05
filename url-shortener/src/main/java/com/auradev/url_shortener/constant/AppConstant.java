@@ -29,6 +29,13 @@ public interface AppConstant {
     /** Prefix cache user info: USER:{userId} → UserResponse JSON */
     String REDIS_USER_CACHE_PREFIX       = "USER:";
 
+    /**
+     * Prefix global revoke timestamp: REVOKE:{userId} → epochMs.
+     * Set khi logoutAllDevices — mọi AT có issuedAt ≤ timestamp này đều bị reject.
+     * TTL = access token max lifetime (tự clean sau khi không còn AT nào valid).
+     */
+    String REDIS_REVOKE_PREFIX           = "REVOKE:";
+
     // ===== SECURITY =====
     String[] PUBLIC_ENDPOINTS = {
             "/api/v1/auth/**",

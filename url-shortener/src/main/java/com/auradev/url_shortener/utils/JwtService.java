@@ -122,6 +122,11 @@ public class JwtService {
         return extractAllClaims(token).getId();
     }
 
+    /** Trích xuất thời điểm phát hành token (issuedAt) — dùng để so sánh với global revoke timestamp. */
+    public Date extractIssuedAt(String token) {
+        return extractAllClaims(token).getIssuedAt();
+    }
+
     /**
      * Trích xuất danh sách roles từ access token.
      * Trả về Set<String> để convert sang Spring Security GrantedAuthority.

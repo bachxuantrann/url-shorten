@@ -74,7 +74,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // 1. Validate token (signature + expiry)
             jwtService.isTokenValid(token);
 
-            // 2. Trích xuất jti và kiểm tra blacklist
+            // 2. Kiểm tra blacklist per-token (jti)
             String jti = jwtService.extractJti(token);
             if (tokenRedisService.isAccessTokenBlacklisted(jti)) {
                 log.debug("Access token is blacklisted: jti={}", jti);
@@ -82,17 +82,29 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 return;
             }
 
-            // 3. Trích xuất thông tin từ token — KHÔNG query DB
-            UUID userId    = jwtService.extractUserId(token);
-            String username = jwtService.extractUsername(token);
+            // 3. Kiểm tra global revoke timestamp (logoutAllDevices)
+            //    Nếu token.issuedAt ≤ revokedAt → tất cả AT issued trước thời điểm logout đều bị reject
+            UUID userId = jwtService.extractUserId(token);
+            Long revokedAt = tokenRedisService.getGlobalRevokeTimestamp(userId);
+            if (revokedAt != null) {
+                long issuedAt = jwtService.extractIssuedAt(token).getTime();
+                if (issuedAt <= revokedAt) {
+                    log.debug("Token issued before global revoke timestamp, rejecting: userId={}", userId);
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+            }
+
+            // 4. Trích xuất thông tin từ token — KHÔNG query DB
+            String username  = jwtService.extractUsername(token);
             Set<String> roles = jwtService.extractRoles(token);
 
-            // 4. Tạo authorities từ roles trong JWT
+            // 5. Tạo authorities từ roles trong JWT
             var authorities = roles.stream()
                     .map(SimpleGrantedAuthority::new)
                     .collect(Collectors.toList());
 
-            // 5. Tạo Authentication object
+            // 6. Tạo Authentication object
             var authentication = new UsernamePasswordAuthenticationToken(
                     username,   // principal — username làm định danh
                     null,       // credentials — không cần (stateless)
@@ -105,7 +117,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // Gắn thêm userId vào request attribute để Controller dùng nếu cần
             request.setAttribute("authenticatedUserId", userId);
 
-            // 6. Set vào SecurityContext
+            // 7. Set vào SecurityContext
             SecurityContextHolder.getContext().setAuthentication(authentication);
             log.debug("Authenticated user: username={}, userId={}, roles={}", username, userId, roles);
 

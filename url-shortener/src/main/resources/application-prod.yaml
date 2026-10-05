@@ -57,6 +57,11 @@ app:
     access-token-expiry: ${JWT_ACCESS_TOKEN_EXPIRY:900000}
     refresh-token-expiry: ${JWT_REFRESH_TOKEN_EXPIRY:604800000}
     issuer: ${JWT_ISSUER:url-shortener}
+  admin:
+    username: ${ADMIN_USERNAME}
+    password: ${ADMIN_PASSWORD}
+    email: ${ADMIN_EMAIL}
+    full-name: ${ADMIN_FULL_NAME:System Admin}
 
 # ===== Logging =====
 logging:

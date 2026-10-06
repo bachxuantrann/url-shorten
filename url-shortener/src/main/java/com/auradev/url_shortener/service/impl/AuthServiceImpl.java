@@ -105,10 +105,7 @@ public class AuthServiceImpl implements AuthService {
                 Duration.ofMillis(jwtProperties.getRefreshTokenExpiry())
         );
 
-        // 6. Xoá global revoke timestamp nếu có (user đăng nhập lại sau logoutAllDevices)
-        tokenRedisService.clearGlobalRevokeTimestamp(user.getId());
-
-        // 7. Cập nhật lastLoginAt
+        // 6. Cập nhật lastLoginAt
         userRepository.updateLastLoginAt(user.getId(), LocalDateTime.now());
 
         log.info("User logged in: username={}", user.getUsername());

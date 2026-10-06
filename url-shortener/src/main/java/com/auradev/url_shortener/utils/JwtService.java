@@ -107,24 +107,33 @@ public class JwtService {
                 .getPayload();
     }
 
+    /** Trả về toàn bộ claims, bỏ qua lỗi hết hạn (dùng cho logout khi token đã expire). */
+    public Claims extractAllClaimsIgnoresExpiration(String token) {
+        try {
+            return extractAllClaims(token);
+        } catch (ExpiredJwtException e) {
+            return e.getClaims();
+        }
+    }
+
     /** Trích xuất userId (subject) từ token. */
     public UUID extractUserId(String token) {
-        return UUID.fromString(extractAllClaims(token).getSubject());
+        return UUID.fromString(extractAllClaimsIgnoresExpiration(token).getSubject());
     }
 
     /** Trích xuất username từ access token. */
     public String extractUsername(String token) {
-        return extractAllClaims(token).get(AppConstant.CLAIM_USERNAME, String.class);
+        return extractAllClaimsIgnoresExpiration(token).get(AppConstant.CLAIM_USERNAME, String.class);
     }
 
     /** Trích xuất jti (JWT ID) từ token. */
     public String extractJti(String token) {
-        return extractAllClaims(token).getId();
+        return extractAllClaimsIgnoresExpiration(token).getId();
     }
 
     /** Trích xuất thời điểm phát hành token (issuedAt) — dùng để so sánh với global revoke timestamp. */
     public Date extractIssuedAt(String token) {
-        return extractAllClaims(token).getIssuedAt();
+        return extractAllClaimsIgnoresExpiration(token).getIssuedAt();
     }
 
     /**
@@ -133,7 +142,7 @@ public class JwtService {
      */
     @SuppressWarnings("unchecked")
     public Set<String> extractRoles(String token) {
-        List<String> roles = extractAllClaims(token)
+        List<String> roles = extractAllClaimsIgnoresExpiration(token)
                 .get(AppConstant.CLAIM_ROLES, List.class);
         return roles == null ? Set.of() : Set.copyOf(roles);
     }

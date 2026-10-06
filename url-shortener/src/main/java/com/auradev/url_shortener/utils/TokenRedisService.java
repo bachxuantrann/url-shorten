@@ -143,15 +143,6 @@ public class TokenRedisService {
         return val != null ? Long.parseLong(val) : null;
     }
 
-    /**
-     * Xoá global revoke timestamp (dùng khi user login lại để tránh reject AT mới).
-     * Không bắt buộc — AT mới luôn có issuedAt > revokedAt nên tự pass.
-     * Nhưng clean up Redis là practice tốt.
-     */
-    public void clearGlobalRevokeTimestamp(UUID userId) {
-        redisTemplate.delete(AppConstant.REDIS_REVOKE_PREFIX + userId);
-    }
-
     // ===========================
     //  PRIVATE HELPERS
     // ===========================

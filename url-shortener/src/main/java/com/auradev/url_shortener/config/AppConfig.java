@@ -8,7 +8,7 @@ import org.springframework.web.servlet.LocaleResolver;
 import org.springframework.web.servlet.i18n.AcceptHeaderLocaleResolver;
 
 import java.nio.charset.StandardCharsets;
-import java.util.List;
+import java.util.Arrays;
 import java.util.Locale;
 
 /**
@@ -24,10 +24,12 @@ public class AppConfig {
      */
     @Bean
     public LocaleResolver localeResolver() {
-        AcceptHeaderLocaleResolver resolver = new AcceptHeaderLocaleResolver();
-        resolver.setSupportedLocales(List.of(Locale.ENGLISH, Locale.forLanguageTag("vi")));
-        resolver.setDefaultLocale(Locale.forLanguageTag("vi"));
-        return resolver;
+        AcceptHeaderLocaleResolver localeResolver = new AcceptHeaderLocaleResolver();
+        // Đặt locale mặc định là tiếng Việt (vi)
+        localeResolver.setDefaultLocale(new Locale("vi"));
+        // Cấu hình danh sách các ngôn ngữ hỗ trợ
+        localeResolver.setSupportedLocales(Arrays.asList(new Locale("vi"), new Locale("en")));
+        return localeResolver;
     }
 
     /**

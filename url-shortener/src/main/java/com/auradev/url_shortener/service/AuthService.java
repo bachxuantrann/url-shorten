@@ -44,13 +44,4 @@ public interface AuthService {
      * @param accessToken access token hiện tại (raw string, không có "Bearer ")
      */
     void logout(String accessToken);
-
-    /**
-     * Đăng xuất tất cả thiết bị.
-     * Xoá refresh token của user khỏi Redis.
-     * Access token sẽ tự expire theo TTL.
-     *
-     * @param accessToken access token hiện tại (để lấy userId)
-     */
-    void logoutAllDevices(String accessToken);
 }

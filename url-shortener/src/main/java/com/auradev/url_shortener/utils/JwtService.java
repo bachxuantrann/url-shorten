@@ -56,7 +56,7 @@ public class JwtService {
      * Tạo Access Token từ thông tin User.
      * Token chứa đủ thông tin để xác thực mà không cần query DB.
      */
-    public String generateAccessToken(User user) {
+    public String generateAccessToken(User user, String sessionId) {
         Date now        = new Date();
         Date expiration = new Date(now.getTime() + jwtProperties.getAccessTokenExpiry());
 
@@ -70,6 +70,7 @@ public class JwtService {
                 .subject(user.getId().toString())               // sub = userId (UUID)
                 .claim(AppConstant.CLAIM_USERNAME, user.getUsername())
                 .claim(AppConstant.CLAIM_ROLES, roles)
+                .claim(AppConstant.CLAIM_SID, sessionId)        // sid = session ID
                 .issuedAt(now)
                 .expiration(expiration)
                 .signWith(secretKey)
@@ -80,7 +81,7 @@ public class JwtService {
      * Tạo Refresh Token — chỉ chứa userId và jti, không có roles.
      * Refresh token phải được lưu vào Redis và so sánh khi refresh.
      */
-    public String generateRefreshToken(User user) {
+    public String generateRefreshToken(User user, String sessionId) {
         Date now        = new Date();
         Date expiration = new Date(now.getTime() + jwtProperties.getRefreshTokenExpiry());
 
@@ -88,6 +89,7 @@ public class JwtService {
                 .id(UUID.randomUUID().toString())               // jti
                 .issuer(jwtProperties.getIssuer())
                 .subject(user.getId().toString())               // sub = userId
+                .claim(AppConstant.CLAIM_SID, sessionId)        // sid = session ID
                 .issuedAt(now)
                 .expiration(expiration)
                 .signWith(secretKey)
@@ -131,10 +133,12 @@ public class JwtService {
         return extractAllClaimsIgnoresExpiration(token).getId();
     }
 
-    /** Trích xuất thời điểm phát hành token (issuedAt) — dùng để so sánh với global revoke timestamp. */
-    public Date extractIssuedAt(String token) {
-        return extractAllClaimsIgnoresExpiration(token).getIssuedAt();
+    /** Trích xuất sessionId (sid) từ token. */
+    public String extractSessionId(String token) {
+        return extractAllClaimsIgnoresExpiration(token).get(AppConstant.CLAIM_SID, String.class);
     }
+
+
 
     /**
      * Trích xuất danh sách roles từ access token.

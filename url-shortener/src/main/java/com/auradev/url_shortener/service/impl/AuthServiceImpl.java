@@ -93,14 +93,15 @@ public class AuthServiceImpl implements AuthService {
         // 3. Kiểm tra trạng thái tài khoản
         validateAccountStatus(user);
 
-        // 4. Tạo tokens
-        String accessToken  = jwtService.generateAccessToken(user);
-        String refreshToken = jwtService.generateRefreshToken(user);
+        // 4. Tạo session ID và tokens
+        String sessionId = UUID.randomUUID().toString();
+        String accessToken  = jwtService.generateAccessToken(user, sessionId);
+        String refreshToken = jwtService.generateRefreshToken(user, sessionId);
 
-        // 5. Lưu refresh token vào Redis
-        //    (Login mới sẽ ghi đè RT cũ — single-session policy)
+        // 5. Lưu refresh token vào Redis với khóa có chứa session ID (multiple-session)
         tokenRedisService.saveRefreshToken(
                 user.getId(),
+                sessionId,
                 refreshToken,
                 Duration.ofMillis(jwtProperties.getRefreshTokenExpiry())
         );
@@ -108,7 +109,7 @@ public class AuthServiceImpl implements AuthService {
         // 6. Cập nhật lastLoginAt
         userRepository.updateLastLoginAt(user.getId(), LocalDateTime.now());
 
-        log.info("User logged in: username={}", user.getUsername());
+        log.info("User logged in: username={}, sessionId={}", user.getUsername(), sessionId);
 
         return LoginResponse.builder()
                 .accessToken(accessToken)
@@ -130,15 +131,17 @@ public class AuthServiceImpl implements AuthService {
 
         // 1. Validate chữ ký và thời hạn của refresh token
         UUID userId;
+        String sessionId;
         try {
             jwtService.isTokenValid(refreshToken);
             userId = jwtService.extractUserId(refreshToken);
+            sessionId = jwtService.extractSessionId(refreshToken);
         } catch (Exception e) {
             throw new AppException(ErrorCode.INVALID_TOKEN);
         }
 
         // 2. So sánh với refresh token đang lưu trong Redis
-        if (!tokenRedisService.isRefreshTokenValid(userId, refreshToken)) {
+        if (!tokenRedisService.isRefreshTokenValid(userId, sessionId, refreshToken)) {
             throw new AppException(ErrorCode.REFRESH_TOKEN_MISMATCH);
         }
 
@@ -149,10 +152,10 @@ public class AuthServiceImpl implements AuthService {
         // 4. Kiểm tra trạng thái tài khoản
         validateAccountStatus(user);
 
-        // 5. Tạo access token mới
-        String newAccessToken = jwtService.generateAccessToken(user);
+        // 5. Tạo access token mới với cùng session ID
+        String newAccessToken = jwtService.generateAccessToken(user, sessionId);
 
-        log.debug("Access token refreshed for userId={}", userId);
+        log.debug("Access token refreshed for userId={}, sessionId={}", userId, sessionId);
 
         return TokenResponse.builder()
                 .accessToken(newAccessToken)
@@ -171,12 +174,8 @@ public class AuthServiceImpl implements AuthService {
      * <p>Logic:
      * <ol>
      *   <li>Blacklist access token hiện tại theo jti — request tiếp theo với AT này bị reject ngay.</li>
-     *   <li>Xoá refresh token khỏi Redis — không thể refresh nữa.</li>
+     *   <li>Xoá refresh token của session tương ứng khỏi Redis — không thể refresh nữa.</li>
      * </ol>
-     *
-     * <p>Lưu ý (single-session model): {@code RT:{userId}} chỉ có một → xóa RT đồng nghĩa
-     * với logout tất cả thiết bị về mặt refresh. Các AT khác đang tồn tại (nếu có) sẽ
-     * tự expire theo TTL. Dùng {@link #logoutAllDevices} nếu muốn invalidate AT ngay lập tức.
      */
     @Override
     public void logout(String accessToken) {
@@ -186,52 +185,15 @@ public class AuthServiceImpl implements AuthService {
             Duration remainingTtl = jwtService.getRemainingTtl(accessToken);
             tokenRedisService.blacklistAccessToken(jti, remainingTtl);
 
-            // 2. Xoá refresh token — không thể refresh session này nữa
+            // 2. Xoá refresh token của session tương ứng
             UUID userId = jwtService.extractUserId(accessToken);
-            tokenRedisService.deleteRefreshToken(userId);
+            String sessionId = jwtService.extractSessionId(accessToken);
+            tokenRedisService.deleteRefreshToken(userId, sessionId);
 
-            log.info("User logged out (single device): userId={}", userId);
+            log.info("User logged out session: userId={}, sessionId={}", userId, sessionId);
         } catch (Exception e) {
             // Token đã hết hạn hoặc invalid — coi như đã logout, không throw lỗi
             log.debug("Logout with invalid/expired token: {}", e.getMessage());
-        }
-    }
-
-    /**
-     * Logout toàn bộ thiết bị — dùng khi nghi ngờ tài khoản bị xâm phạm.
-     *
-     * <p>Logic:
-     * <ol>
-     *   <li>Blacklist access token hiện tại theo jti.</li>
-     *   <li>Xoá refresh token — không thể refresh từ bất kỳ thiết bị nào.</li>
-     *   <li>Set global revoke timestamp — mọi AT có {@code issuedAt ≤ revokedAt}
-     *       đều bị {@link com.auradev.url_shortener.security.JwtAuthenticationFilter} reject
-     *       ngay lập tức, kể cả AT đang nằm ở các thiết bị khác.</li>
-     * </ol>
-     *
-     * <p>TTL của revoke timestamp = access token max lifetime.
-     * Sau đó Redis tự clean vì không còn AT nào issued trước timestamp còn hạn.
-     */
-    @Override
-    public void logoutAllDevices(String accessToken) {
-        try {
-            UUID userId = jwtService.extractUserId(accessToken);
-
-            // 1. Blacklist access token hiện tại
-            String   jti          = jwtService.extractJti(accessToken);
-            Duration remainingTtl = jwtService.getRemainingTtl(accessToken);
-            tokenRedisService.blacklistAccessToken(jti, remainingTtl);
-
-            // 2. Xoá refresh token — chặn tất cả thiết bị refresh
-            tokenRedisService.deleteRefreshToken(userId);
-
-            // 3. Set global revoke timestamp — invalidate tất cả AT đang tồn tại ngay lập tức
-            Duration accessTokenMaxTtl = Duration.ofMillis(jwtProperties.getAccessTokenExpiry());
-            tokenRedisService.setGlobalRevokeTimestamp(userId, accessTokenMaxTtl);
-
-            log.info("User logged out from all devices: userId={}", userId);
-        } catch (Exception e) {
-            log.debug("Logout-all with invalid/expired token: {}", e.getMessage());
         }
     }
 

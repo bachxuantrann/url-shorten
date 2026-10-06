@@ -93,20 +93,6 @@ public class AuthenticateController {
         return ResponseEntity.ok(ApiResponse.success(message, null));
     }
 
-    /**
-     * POST /api/v1/auth/logout-all
-     * Đăng xuất tất cả thiết bị của user hiện tại.
-     */
-    @PostMapping("/logout-all")
-    public ResponseEntity<ApiResponse<Void>> logoutAll(
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authHeader
-    ) {
-        String accessToken = extractToken(authHeader);
-        authService.logoutAllDevices(accessToken);
-        String message = translator.toLocale("api.success.logout_all");
-        return ResponseEntity.ok(ApiResponse.success(message, null));
-    }
-
     // ===========================
     //  PRIVATE HELPERS
     // ===========================

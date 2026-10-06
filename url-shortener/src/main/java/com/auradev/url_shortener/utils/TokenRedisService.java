@@ -39,39 +39,40 @@ public class TokenRedisService {
      * Lưu refresh token vào Redis với TTL.
      *
      * @param userId       ID của user (UUID)
+     * @param sessionId    ID của session (UUID)
      * @param refreshToken chuỗi refresh token
      * @param ttl          thời gian sống
      */
-    public void saveRefreshToken(UUID userId, String refreshToken, Duration ttl) {
-        String key = buildRefreshTokenKey(userId);
+    public void saveRefreshToken(UUID userId, String sessionId, String refreshToken, Duration ttl) {
+        String key = buildRefreshTokenKey(userId, sessionId);
         redisTemplate.opsForValue().set(key, refreshToken, ttl.toMillis(), TimeUnit.MILLISECONDS);
-        log.debug("Saved refresh token for user {} with TTL {}s", userId, ttl.getSeconds());
+        log.debug("Saved refresh token for user {} session {} with TTL {}s", userId, sessionId, ttl.getSeconds());
     }
 
     /**
-     * Lấy refresh token đang active của user.
+     * Lấy refresh token đang active của user session.
      *
      * @return refresh token string, hoặc {@code null} nếu đã hết hạn / không tồn tại
      */
-    public String getRefreshToken(UUID userId) {
-        return redisTemplate.opsForValue().get(buildRefreshTokenKey(userId));
+    public String getRefreshToken(UUID userId, String sessionId) {
+        return redisTemplate.opsForValue().get(buildRefreshTokenKey(userId, sessionId));
     }
 
     /**
      * Kiểm tra refresh token của user có hợp lệ không.
      * So sánh exact với token đang lưu trong Redis.
      */
-    public boolean isRefreshTokenValid(UUID userId, String refreshToken) {
-        String stored = getRefreshToken(userId);
+    public boolean isRefreshTokenValid(UUID userId, String sessionId, String refreshToken) {
+        String stored = getRefreshToken(userId, sessionId);
         return stored != null && stored.equals(refreshToken);
     }
 
     /**
      * Xoá refresh token của user (logout hoặc rotate token).
      */
-    public void deleteRefreshToken(UUID userId) {
-        Boolean deleted = redisTemplate.delete(buildRefreshTokenKey(userId));
-        log.debug("Deleted refresh token for user {}: {}", userId, deleted);
+    public void deleteRefreshToken(UUID userId, String sessionId) {
+        Boolean deleted = redisTemplate.delete(buildRefreshTokenKey(userId, sessionId));
+        log.debug("Deleted refresh token for user {} session {}: {}", userId, sessionId, deleted);
     }
 
     // ===========================
@@ -106,49 +107,11 @@ public class TokenRedisService {
     }
 
     // ===========================
-    //  GLOBAL REVOKE (LOGOUT ALL)
-    // ===========================
-
-    /**
-     * Lưu timestamp revoke toàn bộ thiết bị của user (epoch milliseconds).
-     *
-     * <p>Bất kỳ access token nào có {@code issuedAt ≤ revokedAt} đều sẽ bị reject
-     * ngay tại {@link com.auradev.url_shortener.security.JwtAuthenticationFilter},
-     * không cần phải blacklist từng token riêng lẻ.
-     *
-     * <p>TTL = max access token lifetime: sau khoảng này không còn AT nào
-     * được issued trước timestamp còn valid → Redis tự clean.
-     *
-     * @param userId            ID của user
-     * @param accessTokenMaxTtl TTL = thời gian sống tối đa của một access token
-     */
-    public void setGlobalRevokeTimestamp(UUID userId, Duration accessTokenMaxTtl) {
-        String key = AppConstant.REDIS_REVOKE_PREFIX + userId;
-        redisTemplate.opsForValue().set(
-                key,
-                String.valueOf(System.currentTimeMillis()),
-                accessTokenMaxTtl.toMillis(),
-                TimeUnit.MILLISECONDS
-        );
-        log.debug("Set global revoke timestamp for user {} (TTL={}s)", userId, accessTokenMaxTtl.getSeconds());
-    }
-
-    /**
-     * Lấy global revoke timestamp của user.
-     *
-     * @return epoch milliseconds, hoặc {@code null} nếu không có (chưa logoutAllDevices)
-     */
-    public Long getGlobalRevokeTimestamp(UUID userId) {
-        String val = redisTemplate.opsForValue().get(AppConstant.REDIS_REVOKE_PREFIX + userId);
-        return val != null ? Long.parseLong(val) : null;
-    }
-
-    // ===========================
     //  PRIVATE HELPERS
     // ===========================
 
-    private String buildRefreshTokenKey(UUID userId) {
-        return AppConstant.REDIS_REFRESH_TOKEN_PREFIX + userId.toString();
+    private String buildRefreshTokenKey(UUID userId, String sessionId) {
+        return AppConstant.REDIS_REFRESH_TOKEN_PREFIX + userId.toString() + ":" + sessionId;
     }
 
     private String buildBlacklistKey(String jti) {

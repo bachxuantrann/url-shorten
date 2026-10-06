@@ -18,9 +18,10 @@ public interface AppConstant {
     String CLAIM_USERNAME     = "username";
     String CLAIM_ROLES        = "roles";
     String CLAIM_JTI          = "jti";
+    String CLAIM_SID          = "sid";
 
     // ===== REDIS KEY PREFIX =====
-    /** Prefix lưu refresh token: RT:{userId} → refreshTokenString */
+    /** Prefix lưu refresh token: RT:{userId}:{sessionId} → refreshTokenString */
     String REDIS_REFRESH_TOKEN_PREFIX   = "RT:";
 
     /** Prefix blacklist access token: BL:{jti} → "1" */
@@ -29,12 +30,7 @@ public interface AppConstant {
     /** Prefix cache user info: USER:{userId} → UserResponse JSON */
     String REDIS_USER_CACHE_PREFIX       = "USER:";
 
-    /**
-     * Prefix global revoke timestamp: REVOKE:{userId} → epochMs.
-     * Set khi logoutAllDevices — mọi AT có issuedAt ≤ timestamp này đều bị reject.
-     * TTL = access token max lifetime (tự clean sau khi không còn AT nào valid).
-     */
-    String REDIS_REVOKE_PREFIX           = "REVOKE:";
+
 
     // ===== SECURITY =====
     String[] PUBLIC_ENDPOINTS = {

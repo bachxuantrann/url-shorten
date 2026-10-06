@@ -82,21 +82,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 return;
             }
 
-            // 3. Kiểm tra global revoke timestamp (logoutAllDevices)
-            //    Nếu token.issuedAt ≤ revokedAt → tất cả AT issued trước thời điểm logout đều bị reject
-            UUID userId = jwtService.extractUserId(token);
-            Long revokedAt = tokenRedisService.getGlobalRevokeTimestamp(userId);
-            if (revokedAt != null) {
-                long issuedAt = jwtService.extractIssuedAt(token).getTime();
-                if (issuedAt <= revokedAt) {
-                    log.debug("Token issued before global revoke timestamp, rejecting: userId={}", userId);
-                    filterChain.doFilter(request, response);
-                    return;
-                }
-            }
-
-            // 4. Trích xuất thông tin từ token — KHÔNG query DB
-            String username  = jwtService.extractUsername(token);
+            // 3. Trích xuất thông tin từ token — KHÔNG query DB
+            UUID userId       = jwtService.extractUserId(token);
+            String username   = jwtService.extractUsername(token);
             Set<String> roles = jwtService.extractRoles(token);
 
             // 5. Tạo authorities từ roles trong JWT

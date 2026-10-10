@@ -30,7 +30,7 @@ public interface UserMapper {
     /**
      * Map {@link RegisterRequest} sang {@link User} entity.
      * Password sẽ được hash riêng ở tầng Service trước khi lưu.
-     * {@code id}, {@code createdAt}, {@code updatedAt}, {@code status}, {@code roles}
+     * {@code id}, {@code createdAt}, {@code updatedAt}, {@code createdBy}, {@code updatedBy}, {@code status}, {@code roles}
      * sẽ được xử lý bởi JPA/Builder, không cần set ở đây.
      */
     @Mapping(target = "id",            ignore = true)
@@ -41,6 +41,8 @@ public interface UserMapper {
     @Mapping(target = "lastLoginAt",   ignore = true)
     @Mapping(target = "createdAt",     ignore = true)
     @Mapping(target = "updatedAt",     ignore = true)
+    @Mapping(target = "createdBy",     ignore = true)
+    @Mapping(target = "updatedBy",     ignore = true)
     User toUser(RegisterRequest request);
 
     /**
@@ -58,6 +60,8 @@ public interface UserMapper {
     @Mapping(target = "lastLoginAt",   ignore = true)
     @Mapping(target = "createdAt",     ignore = true)
     @Mapping(target = "updatedAt",     ignore = true)
+    @Mapping(target = "createdBy",     ignore = true)
+    @Mapping(target = "updatedBy",     ignore = true)
     void updateUserFromRequest(
             com.auradev.url_shortener.dto.request.UpdateProfileRequest request,
             @MappingTarget User user

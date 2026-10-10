@@ -15,14 +15,13 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Các loại key Redis:
  * <ul>
- *   <li>{@code RT:{userId}}     → refresh token string, TTL = refreshTokenExpiry</li>
- *   <li>{@code BL:{jti}}        → "1" (revoked marker), TTL = thời gian còn lại của access token</li>
- *   <li>{@code REVOKE:{userId}} → epochMs của lần logoutAllDevices, TTL = access token max lifetime</li>
+ *   <li>{@code RT:{userId}:{sessionId}} → refresh token string, TTL = refreshTokenExpiry</li>
+ *   <li>{@code BL:{jti}}                → "1" (revoked marker), TTL = thời gian còn lại của access token</li>
  * </ul>
  *
- * <p>Thiết kế single-session: {@code RT:{userId}} lưu một refresh token duy nhất.
- * Login mới sẽ ghi đè RT cũ → chỉ session mới nhất có thể refresh.
- * Để hỗ trợ multi-device, mở rộng key thành {@code RT:{userId}:{deviceId}}.
+ * <p>Thiết kế multi-session: mỗi lần login tạo một {@code sessionId} riêng nên một user
+ * có thể đăng nhập đồng thời nhiều thiết bị. Logout chỉ xoá RT của session hiện tại
+ * và blacklist access token đang dùng. Hiện chưa có "logout all devices".
  */
 @Slf4j
 @Service

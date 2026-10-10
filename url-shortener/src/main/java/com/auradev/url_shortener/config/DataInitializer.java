@@ -18,7 +18,7 @@ import java.util.Set;
  * Khởi tạo dữ liệu mặc định khi ứng dụng start.
  *
  * <p>Chạy một lần duy nhất sau khi ApplicationContext đã sẵn sàng
- * (implements {@link ApplicationRunner} — chạy sau Hibernate schema sync).
+ * (implements {@link ApplicationRunner} — chạy sau khi Flyway migrate xong).
  *
  * <p>Logic:
  * <ul>

@@ -22,6 +22,17 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         default_schema: public
 
+  # ===== Flyway =====
+  # Schema chỉ thay đổi qua migration (db/migration). Hibernate chỉ validate.
+  # baseline-on-migrate: false — từ chối chạy lên DB đã có bảng nhưng không có lịch sử Flyway
+  # (tránh trỏ nhầm DB). clean-disabled: true — chặn lệnh flyway clean xoá toàn bộ DB.
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+    clean-disabled: true
+
   # ===== Redis =====
   data:
     redis:

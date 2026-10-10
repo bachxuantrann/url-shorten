@@ -25,7 +25,7 @@ docker compose -f docker-compose.dev.yml up -d
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
-The only test is `UrlShortenerApplicationTests.contextLoads`, a `@SpringBootTest` that needs Postgres and Redis reachable (start the dev compose first).
+Integration tests use Testcontainers (Postgres, Redis, Kafka via `src/test/.../support/TestcontainersConfiguration`, add `@Import` to the test class), so they need a running Docker daemon but **not** the dev compose, and never touch the dev database. The first run pulls images and is slow; Spring caches the context, so keep test classes on the same configuration to share one set of containers.
 
 ## Architecture
 
@@ -49,12 +49,46 @@ All errors go through `AppException(ErrorCode, args...)`. `ErrorCode` holds the 
 
 ### Config
 
-`application.yaml` selects the `dev` profile; `application-dev.yaml` / `application-prod.yaml` hold the rest. Custom settings are bound by `JwtProperties` and `AdminProperties` (`app.jwt.*`, `app.admin.*`). `DataInitializer` creates the admin account from `app.admin.*` at startup. Dev uses `ddl-auto: update` (no migration tool).
+`application.yaml` selects the `dev` profile; `application-dev.yaml` / `application-prod.yaml` hold the rest. Custom settings are bound by `JwtProperties` and `AdminProperties` (`app.jwt.*`, `app.admin.*`). `DataInitializer` creates the admin account from `app.admin.*` at startup. Schema is managed by **Flyway** (`src/main/resources/db/migration`, `V{n}__name.sql`); Hibernate runs with `ddl-auto: validate` in every profile, so every entity change needs a new migration. Never edit an applied migration. Flyway settings live per profile, not in `application.yaml`: dev sets `baseline-on-migrate: true` (adopts a legacy DB as V1, can be dropped once every dev DB has run Flyway); prod sets it `false` so it refuses a non-empty DB with no Flyway history, plus `clean-disabled: true`. Entities that need auditing extend `BaseEntity` (`createdAt`/`updatedAt` via Hibernate, `createdBy`/`updatedBy` via Spring Data auditing and `AuditorAwareImpl`: username, `anonymous` for unauthenticated requests, `system` outside a request). It uses Lombok `@SuperBuilder`, so subclasses must too, and a table for such an entity needs `created_at`, `updated_at`, `created_by`, `updated_by` NOT NULL columns. Bulk `@Modifying` queries bypass auditing.
 
 ## Gotchas
 
 - `.env.dev` and `.env.prod` are intentionally tracked (public repo, placeholder values only). Real secrets are injected at deploy time, so never put real secrets in these files.
-- `Dockerfile` healthcheck and `PUBLIC_ENDPOINTS` reference `/actuator/health`, but `spring-boot-starter-actuator` is not in `pom.xml`, so that endpoint does not exist and the container healthcheck will fail.
 - `spring-kafka` and `spring-boot-starter-websocket` are declared and Kafka is configured, but no code uses them yet. Only the `User` entity exists, with no URL-shortening domain model so far.
-- The Javadoc in `TokenRedisService` still describes an older single-session design (`RT:{userId}`) and a `REVOKE:` key; the code uses per-session keys and has no revoke-all.
 - The dev profile has default JWT secret and admin credentials in `application-dev.yaml`; they must be overridden via env vars in prod.
+
+## Product direction and development plan
+
+Goal: a TinyURL-style shortener. Currently only auth/user management exists (base project); the URL domain is built in the phases below. Build phase by phase; each phase must be runnable and tested on its own.
+
+### Design decisions (already made)
+
+- `users.id` stays **UUID** (used in JWT claims and Redis keys). `urls.user_id` is a UUID FK, nullable for anonymous links. `urls.id` is `BIGSERIAL`.
+- `short_code` is the public identifier (UNIQUE), `id` is internal. Generated codes: DB sequence -> scramble -> Base62 (min 6-7 chars). Custom aliases share the same column, so reserved words (`api`, `swagger-ui`, `actuator`, ...) must be rejected.
+- Status enum `UrlStatus`: `ACTIVE`, `DISABLED`, `EXPIRED`, `BLOCKED`, `DELETED`. `expires_at` is separate from `status`.
+- Soft delete (`deleted_at`). A short code once issued is **never reused**.
+- Redirect uses **302** (301 would be cached by browsers and lose click stats). Responses: expired -> 410, missing -> 404, blocked -> 403.
+- Redirect path: Redis cache-aside (with negative caching) -> Postgres fallback if Redis is down. Click tracking is async via Kafka and must never break a redirect.
+- Kafka is at-least-once: every `ClickEvent` carries a unique `eventId`; consumers are idempotent (`ON CONFLICT DO NOTHING`).
+- Schema is managed by Flyway (replace `ddl-auto: update` with `validate` in Phase 0). `url_clicks` is partitioned by month. Per-country/device stat tables are only added when a dashboard needs them.
+
+### Phases
+
+0. **Foundation (DONE):** Flyway (V1 = existing `users`), Testcontainers (Postgres/Redis/Kafka), add actuator (Dockerfile healthcheck needs it), `BaseEntity` auditing, CI (build + test), fix stale `TokenRedisService` Javadoc.
+1. **Core URL domain:** `urls` table + `UrlStatus`, short-code generator, authenticated CRUD under `/api/v1/urls` (create/get/list/update/disable/soft-delete), ownership checks (404 for other users' links), new `ErrorCode`s + i18n keys, concurrency test for code generation.
+2. **Redirect path:** public `GET /{code}` (add to `PUBLIC_ENDPOINTS`, reserved-code list), status-to-HTTP mapping, Redis cache + negative cache, TTL = min(default, time to expiry), cache invalidation on update/disable/delete/block, Redis-down fallback.
+3. **Lifecycle:** lazy expiry check on redirect, scheduled job ACTIVE -> EXPIRED (single-runner lock when multi-instance), injectable `Clock` for tests.
+4. **Anonymous links and abuse protection:** `/api/v1/public/urls`, Redis rate limiting (429 + `Retry-After`), strict URL validation (http/https only, block localhost/private IPs/SSRF and self-redirect loops), per-user quota, domain blocklist, `BLOCKED` status, admin block/unblock.
+5. **Link extras:** custom alias (409 on conflict), password-protected links (`password_hash`, attempt limit), QR code generated on the fly (not stored).
+6. **Click tracking (Kafka):** `url_clicks` with unique `event_id`, topic `url-clicks` keyed by `shortCode`, async producer, idempotent batch consumer with retry + dead-letter topic, enrichment (User-Agent, GeoIP) in the consumer only, privacy handling for IPs, monthly partitions.
+7. **Analytics:** `url_daily_stats` unique `(url_id, stat_date)` upserted by the consumer, batched `urls.click_count` updates, unique-visitor estimate, stats APIs (owner/admin only), reconciliation job comparing `click_count` vs `url_clicks`.
+8. **Reliability and observability (logging/telemetry via OTLP + SigNoz):**
+   - Export **logs, traces and metrics over OTLP** to **SigNoz** (OTLP gRPC `4317` / HTTP `4318`). Use the OpenTelemetry Java agent or the Micrometer-tracing OTLP bridge plus a Logback OTLP appender; endpoint and service name come from env vars (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME=url-shortener`), never hard-coded.
+   - Run SigNoz self-hosted via its own compose file, separate from `docker-compose.dev.yml` (it brings ClickHouse and is heavy). Prod points at the SigNoz collector via env.
+   - Keep correlation: trace/span IDs injected into log lines (MDC) so a slow redirect can be traced across Redis, Postgres and Kafka.
+   - Custom metrics: redirect latency, cache hit ratio, Kafka send failures, consumer lag.
+   - Resilience4j timeouts/circuit breakers for Redis and Kafka, k6 load test (target p99 redirect < 50 ms on cache hit), multi-instance run behind nginx, manual chaos tests (Redis/Kafka/consumer down).
+9. **Frontend and deployment:** web UI, prod config hardening (CORS, HTTPS, real secrets, no `show-sql`), deploy pipeline, Postgres backups.
+10. **Later:** API keys, custom domains, Safe Browsing check, email verification.
+
+MVP = Phases 0-2 (create a link, click it, get redirected).

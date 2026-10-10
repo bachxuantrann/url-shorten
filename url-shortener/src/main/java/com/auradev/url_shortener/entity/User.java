@@ -4,8 +4,7 @@ import com.auradev.url_shortener.enums.RoleEnum;
 import com.auradev.url_shortener.enums.UserStatusEnum;
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
+import lombok.experimental.SuperBuilder;
 
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -20,7 +19,7 @@ import java.util.UUID;
  *   <li>ID kiểu UUID (không đoán được, an toàn hơn Long khi expose ra API)</li>
  *   <li>Soft-delete thông qua {@link UserStatusEnum} thay vì xoá cứng</li>
  *   <li>Roles lưu trong bảng phụ {@code user_roles} — EAGER để không cần JOIN khi check quyền</li>
- *   <li>Audit timestamps tự động qua Hibernate</li>
+ *   <li>Audit timestamps kế thừa từ {@link BaseEntity}</li>
  * </ul>
  */
 @Entity
@@ -34,10 +33,10 @@ import java.util.UUID;
 )
 @Getter
 @Setter
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-public class User {
+public class User extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -93,14 +92,4 @@ public class User {
     /** Thời điểm đăng nhập gần nhất (UTC) */
     @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt;
-
-    /** Thời điểm tạo tài khoản — tự động set, không cho phép sửa */
-    @CreationTimestamp
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    /** Thời điểm cập nhật gần nhất — tự động cập nhật */
-    @UpdateTimestamp
-    @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
 }

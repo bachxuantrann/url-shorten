@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: url-shortener
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Integration test dùng Testcontainers (Postgres, Redis, Kafka) — runner đã có sẵn Docker
+      - name: Build and test
+        run: |
+          chmod +x mvnw
+          ./mvnw -B verify

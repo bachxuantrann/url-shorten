@@ -73,6 +73,9 @@ app:
     password: ${ADMIN_PASSWORD}
     email: ${ADMIN_EMAIL}
     full-name: ${ADMIN_FULL_NAME:System Admin}
+  shortener:
+    base-url: ${APP_BASE_URL}
+    code-secret: ${SHORT_CODE_SECRET}
 
 # ===== Logging =====
 logging:

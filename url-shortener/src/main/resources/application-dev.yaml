@@ -72,6 +72,9 @@ app:
     password: ${ADMIN_PASSWORD:Admin@123456}
     email: ${ADMIN_EMAIL:admin@auradev.local}
     full-name: ${ADMIN_FULL_NAME:System Admin}
+  shortener:
+    base-url: ${APP_BASE_URL:http://localhost:8080}
+    code-secret: ${SHORT_CODE_SECRET:3b8a535abb7ec29b3b49383e0e6d22e64b74555ce6263071e7ce5c39bb4ead8e}
 
 # ===== Logging =====
 logging:

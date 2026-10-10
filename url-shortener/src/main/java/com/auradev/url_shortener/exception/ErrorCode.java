@@ -12,6 +12,7 @@ import org.springframework.http.HttpStatus;
  *   <li>ERR_100–199  : User</li>
  *   <li>ERR_200–299  : Authentication / Token</li>
  *   <li>ERR_300–399  : Authorization</li>
+ *   <li>ERR_400–499  : URL</li>
  *   <li>ERR_999      : Lỗi hệ thống</li>
  * </ul>
  */
@@ -41,6 +42,13 @@ public enum ErrorCode {
     // ===== AUTHORIZATION (300-399) =====
     UNAUTHORIZED("ERR_300", "api.error.unauthorized", HttpStatus.UNAUTHORIZED),
     FORBIDDEN("ERR_301", "api.error.forbidden", HttpStatus.FORBIDDEN),
+
+    // ===== URL (400-499) =====
+    URL_NOT_FOUND("ERR_400", "api.error.url_not_found", HttpStatus.NOT_FOUND),
+    URL_BLOCKED("ERR_401", "api.error.url_blocked", HttpStatus.FORBIDDEN),
+    URL_INVALID_STATE("ERR_402", "api.error.url_invalid_state", HttpStatus.CONFLICT),
+    URL_EXPIRED("ERR_403", "api.error.url_expired", HttpStatus.BAD_REQUEST),
+    INVALID_URL("ERR_404", "api.error.invalid_url", HttpStatus.BAD_REQUEST),
 
     // ===== SYSTEM (999) =====
     UNKNOWN_ERROR("ERR_999", "api.error.unknown", HttpStatus.INTERNAL_SERVER_ERROR);

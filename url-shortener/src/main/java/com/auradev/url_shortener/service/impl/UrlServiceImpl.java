@@ -13,6 +13,8 @@ import com.auradev.url_shortener.mapper.UrlMapper;
 import com.auradev.url_shortener.repository.UrlRepository;
 import com.auradev.url_shortener.service.UrlService;
 import com.auradev.url_shortener.utils.ShortCodeGenerator;
+import com.auradev.url_shortener.utils.ShortCodes;
+import com.auradev.url_shortener.utils.UrlCacheService;
 import com.auradev.url_shortener.utils.UrlUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +46,7 @@ public class UrlServiceImpl implements UrlService {
     private final UrlMapper           urlMapper;
     private final ShortCodeGenerator  shortCodeGenerator;
     private final ShortenerProperties shortenerProperties;
+    private final UrlCacheService     urlCacheService;
 
     // ===========================
     //  CREATE
@@ -54,9 +57,12 @@ public class UrlServiceImpl implements UrlService {
     public UrlResponse create(UUID userId, CreateUrlRequest request) {
         String originalUrl = UrlUtils.validate(request.getOriginalUrl());
 
-        // Số tuần tự duy nhất từ Postgres → mã duy nhất, an toàn khi chạy nhiều instance
-        long sequence  = urlRepository.nextShortCodeSequence();
-        String shortCode = shortCodeGenerator.generate(sequence);
+        // Số tuần tự duy nhất từ Postgres → mã duy nhất, an toàn khi chạy nhiều instance.
+        // Bỏ qua (cực hiếm) mã trùng với từ khoá dành riêng như "swagger".
+        String shortCode;
+        do {
+            shortCode = shortCodeGenerator.generate(urlRepository.nextShortCodeSequence());
+        } while (ShortCodes.isReserved(shortCode));
 
         Url saved = urlRepository.save(Url.builder()
                 .userId(userId)
@@ -65,6 +71,9 @@ public class UrlServiceImpl implements UrlService {
                 .status(UrlStatusEnum.ACTIVE)
                 .expiresAt(request.getExpiresAt())
                 .build());
+
+        // Xoá negative cache (nếu có ai đã truy cập mã này trước khi nó được tạo)
+        urlCacheService.evictAfterCommit(saved.getShortCode());
 
         log.info("URL created: shortCode={}, userId={}", saved.getShortCode(), userId);
         return toResponse(saved);
@@ -105,6 +114,8 @@ public class UrlServiceImpl implements UrlService {
             url.setStatus(UrlStatusEnum.ACTIVE);
         }
 
+        urlCacheService.evictAfterCommit(shortCode);
+
         log.info("URL updated: shortCode={}, userId={}", shortCode, userId);
         return toResponse(urlRepository.save(url));
     }
@@ -120,6 +131,8 @@ public class UrlServiceImpl implements UrlService {
             case DISABLED -> { /* đã tắt — idempotent */ }
             default       -> throw new AppException(ErrorCode.URL_INVALID_STATE, url.getStatus());
         }
+
+        urlCacheService.evictAfterCommit(shortCode);
 
         log.info("URL disabled: shortCode={}, userId={}", shortCode, userId);
         return toResponse(urlRepository.save(url));
@@ -142,6 +155,8 @@ public class UrlServiceImpl implements UrlService {
             default     -> throw new AppException(ErrorCode.URL_INVALID_STATE, url.getStatus());
         }
 
+        urlCacheService.evictAfterCommit(shortCode);
+
         log.info("URL enabled: shortCode={}, userId={}", shortCode, userId);
         return toResponse(urlRepository.save(url));
     }
@@ -159,6 +174,7 @@ public class UrlServiceImpl implements UrlService {
         url.setStatus(UrlStatusEnum.DELETED);
         url.setDeletedAt(LocalDateTime.now());
         urlRepository.save(url);
+        urlCacheService.evictAfterCommit(shortCode);
 
         log.info("URL deleted: shortCode={}, userId={}", shortCode, userId);
     }

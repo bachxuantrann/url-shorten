@@ -49,6 +49,14 @@ Stateless JWT, no sessions, no `UserDetailsService`. See `SecurityConfig`, `JwtA
 
 Short codes: `ShortCodeGenerator` turns the next value of the Postgres sequence `short_code_seq` (`UrlRepository.nextShortCodeSequence`) into a 7-char Base62 code via a keyed Feistel permutation with cycle walking, so codes are unique by construction (bijection) and not guessable/countable. The key is `app.shortener.code-secret` (env `SHORT_CODE_SECRET`) and **must stay constant across deploys**. `app.shortener.base-url` (env `APP_BASE_URL`) builds `shortUrl` in responses. URL content checks (http/https, host present, no userinfo, max 2048) are in `UrlUtils`; SSRF/abuse rules come in Phase 4. List sorting is whitelisted in `UrlController` (`createdAt`, `clickCount`, `expiresAt`). `GET /api/v1/urls?keyword=` searches the owner's links by partial, case-insensitive match on `originalUrl` or `shortCode` (max 100 chars; `%`, `_` and `!` are escaped by `UrlServiceImpl.toLikePattern` and treated literally; combinable with `status` and paging).
 
+### Redirect path (Phase 2)
+
+Public `GET /{code}` (`RedirectController` -> `RedirectServiceImpl`) answers `302` + `Location` + `Cache-Control: no-store` (302 and no-store so link changes apply immediately and every click can be counted later). `SecurityConfig.redirectRequestMatcher()` permits any single-segment GET/HEAD path made of code characters that is not in `ShortCodes` reserved words (`/api`, `/actuator`, `/admin`... stay authenticated); the 3-32 length rule is enforced in the service so bad codes get a JSON 404 instead of 401. Add new top-level routes to `ShortCodes.RESERVED`.
+
+Status mapping: unknown / malformed / reserved / `DISABLED` -> 404 (`URL_NOT_FOUND`), expired (`EXPIRED`, or `ACTIVE` past `expiresAt`) / `DELETED` -> 410 (`URL_GONE`), `BLOCKED` -> 403 (`URL_ACCESS_BLOCKED`).
+
+Lookup is Redis cache-aside then Postgres (`UrlCacheService`, key `URL:{code}` = `STATUS|expiresAt|originalUrl` or `MISSING` for negative caching; TTL `app.shortener.cache-ttl` capped at time-to-expiry, `negative-cache-ttl` for misses). Redis errors are swallowed and treated as a cache miss, so a Redis outage never breaks redirects. **Any code path that changes a link's status, target or expiry (including future admin block, expiry job, alias changes) must call `UrlCacheService.evictAfterCommit(code)`**; tests that change a row directly through the repository must call `evict`. A tiny race (reader loads DB just before a commit, writes cache just after the eviction) can leave a stale entry for at most `cache-ttl`.
+
 ### Errors and i18n
 
 All errors go through `AppException(ErrorCode, args...)`. `ErrorCode` holds the code (`ERR_xxx` ranges documented in the enum), message key, and HTTP status. `GlobalExceptionHandler` and the 401/403 handlers in `SecurityConfig` both render the same `ApiResponse` shape, with messages resolved by `TranslatorUtils` from `src/main/resources/i18n/message.properties` and `message_vi.properties`. A new error needs an `ErrorCode` entry and a key in both property files.
@@ -60,7 +68,7 @@ All errors go through `AppException(ErrorCode, args...)`. `ErrorCode` holds the 
 ## Gotchas
 
 - `.env.dev` and `.env.prod` are intentionally tracked (public repo, placeholder values only). Real secrets are injected at deploy time, so never put real secrets in these files.
-- `spring-kafka` and `spring-boot-starter-websocket` are declared and Kafka is configured, but no code uses them yet. No redirect endpoint, caching or click tracking exists yet (Phases 2+).
+- `spring-kafka` and `spring-boot-starter-websocket` are declared and Kafka is configured, but no code uses them yet. No click tracking, expiry job or abuse protection exists yet (Phases 3+).
 - The dev profile has default JWT secret and admin credentials in `application-dev.yaml`; they must be overridden via env vars in prod.
 
 ## Product direction and development plan
@@ -82,7 +90,7 @@ Goal: a TinyURL-style shortener. Currently only auth/user management exists (bas
 
 0. **Foundation (DONE):** Flyway (V1 = existing `users`), Testcontainers (Postgres/Redis/Kafka), add actuator (Dockerfile healthcheck needs it), `BaseEntity` auditing, CI (build + test), fix stale `TokenRedisService` Javadoc.
 1. **Core URL domain (DONE):** `urls` table + `UrlStatus`, short-code generator, authenticated CRUD under `/api/v1/urls` (create/get/list/update/disable/soft-delete), ownership checks (404 for other users' links), new `ErrorCode`s + i18n keys, concurrency test for code generation.
-2. **Redirect path:** public `GET /{code}` (add to `PUBLIC_ENDPOINTS`, reserved-code list), status-to-HTTP mapping, Redis cache + negative cache, TTL = min(default, time to expiry), cache invalidation on update/disable/delete/block, Redis-down fallback.
+2. **Redirect path (DONE):** public `GET /{code}` (add to `PUBLIC_ENDPOINTS`, reserved-code list), status-to-HTTP mapping, Redis cache + negative cache, TTL = min(default, time to expiry), cache invalidation on update/disable/delete/block, Redis-down fallback.
 3. **Lifecycle:** lazy expiry check on redirect, scheduled job ACTIVE -> EXPIRED (single-runner lock when multi-instance), injectable `Clock` for tests.
 4. **Anonymous links and abuse protection:** `/api/v1/public/urls`, Redis rate limiting (429 + `Retry-After`), strict URL validation (http/https only, block localhost/private IPs/SSRF and self-redirect loops), per-user quota, domain blocklist, `BLOCKED` status, admin block/unblock.
 5. **Link extras:** custom alias (409 on conflict), password-protected links (`password_hash`, attempt limit), QR code generated on the fly (not stored).

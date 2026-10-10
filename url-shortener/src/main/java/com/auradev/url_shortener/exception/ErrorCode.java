@@ -49,6 +49,8 @@ public enum ErrorCode {
     URL_INVALID_STATE("ERR_402", "api.error.url_invalid_state", HttpStatus.CONFLICT),
     URL_EXPIRED("ERR_403", "api.error.url_expired", HttpStatus.BAD_REQUEST),
     INVALID_URL("ERR_404", "api.error.invalid_url", HttpStatus.BAD_REQUEST),
+    URL_GONE("ERR_405", "api.error.url_gone", HttpStatus.GONE),
+    URL_ACCESS_BLOCKED("ERR_406", "api.error.url_access_blocked", HttpStatus.FORBIDDEN),
 
     // ===== SYSTEM (999) =====
     UNKNOWN_ERROR("ERR_999", "api.error.unknown", HttpStatus.INTERNAL_SERVER_ERROR);

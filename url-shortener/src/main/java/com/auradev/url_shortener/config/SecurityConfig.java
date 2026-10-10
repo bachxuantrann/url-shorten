@@ -4,6 +4,7 @@ import com.auradev.url_shortener.constant.AppConstant;
 import com.auradev.url_shortener.dto.response.ApiResponse;
 import com.auradev.url_shortener.exception.ErrorCode;
 import com.auradev.url_shortener.security.JwtAuthenticationFilter;
+import com.auradev.url_shortener.utils.ShortCodes;
 import com.auradev.url_shortener.utils.TranslatorUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
@@ -21,6 +22,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -63,6 +65,8 @@ public class SecurityConfig {
             // ===== Authorization rules =====
             .authorizeHttpRequests(auth -> auth
                     .requestMatchers(AppConstant.PUBLIC_ENDPOINTS).permitAll()
+                    // Redirect công khai: GET /{code}
+                    .requestMatchers(redirectRequestMatcher()).permitAll()
                     .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                     .anyRequest().authenticated()
             )
@@ -85,6 +89,22 @@ public class SecurityConfig {
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
+    }
+
+    /**
+     * Khớp {@code GET/HEAD /{code}}: đường dẫn một đoạn, chỉ gồm ký tự hợp lệ của short code
+     * và không thuộc danh sách mã dành riêng ({@code /api}, {@code /actuator}...).
+     * Các đường dẫn còn lại vẫn đi theo luật {@code anyRequest().authenticated()}.
+     */
+    private RequestMatcher redirectRequestMatcher() {
+        return request -> {
+            String method = request.getMethod();
+            if (!"GET".equals(method) && !"HEAD".equals(method)) {
+                return false;
+            }
+            String path = request.getRequestURI().substring(request.getContextPath().length());
+            return ShortCodes.isRedirectPath(path);
+        };
     }
 
     /**

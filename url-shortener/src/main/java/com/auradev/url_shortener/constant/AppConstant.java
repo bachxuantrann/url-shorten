@@ -28,6 +28,9 @@ public interface AppConstant {
     /** Prefix blacklist access token: BL:{jti} → "1" */
     String REDIS_ACCESS_BLACKLIST_PREFIX = "BL:";
 
+    /** Prefix cache link cho redirect: URL:{shortCode} → "STATUS|expiresAt|originalUrl" hoặc "MISSING" */
+    String REDIS_URL_CACHE_PREFIX        = "URL:";
+
     /** Prefix cache user info: USER:{userId} → UserResponse JSON */
     String REDIS_USER_CACHE_PREFIX       = "USER:";
 

@@ -25,6 +25,9 @@ public interface UrlRepository extends JpaRepository<Url, Long> {
     @Query(value = "SELECT nextval('short_code_seq')", nativeQuery = true)
     long nextShortCodeSequence();
 
+    /** Tìm link theo mã công khai, mọi trạng thái (dùng cho redirect) */
+    Optional<Url> findByShortCode(String shortCode);
+
     /** Tìm link theo mã và chủ sở hữu, bỏ qua link có trạng thái {@code excluded} (thường là DELETED) */
     Optional<Url> findByShortCodeAndUserIdAndStatusNot(String shortCode, UUID userId, UrlStatusEnum excluded);
 

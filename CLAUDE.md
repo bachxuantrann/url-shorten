@@ -133,13 +133,35 @@ Handoff notes so a new session can continue without the previous conversation.
 - `UrlService.createAnonymous` takes the full `CreateUrlRequest` and ignores its alias/password; a dedicated command type would be cleaner.
 - Prod env: `.env.prod` still has `CHANGE_ME_*` placeholders. `APP_BASE_URL` and `SHORT_CODE_SECRET` must be real values before deploying, and `SHORT_CODE_SECRET` must never change afterwards.
 
-### Notes for the next phase (Phase 6: click tracking via Kafka)
+### Phase 6 design brief (click tracking via Kafka)
 
-- Emit one `ClickEvent` (with a unique `eventId`) on a **successful** redirect (`RedirectController` after `resolveTarget`) and on a **successful unlock** (`PublicUrlController.unlock`). Do not emit for 403/404/410 responses, including `ERR_408` password-required. The producer must be asynchronous and swallow failures: a Kafka outage must never break a redirect (same fail-open idea as the cache and `RateLimitService`).
-- Do not put the raw IP into the event or table unmasked; decide on hashing/truncation first (privacy note in the plan). The client IP comes from `ClientIpUtils.resolve`.
-- The consumer must be idempotent (`event_id` UNIQUE, `ON CONFLICT DO NOTHING`) and batch its writes (no N+1; `urls.click_count` and `url_daily_stats` via bulk/upsert statements, set audit columns yourself). Keep the "prove it with a statement-count test" rule.
-- `url_clicks` is partitioned by month (needs a job or migration to create future partitions).
-- New integration tests that start Kafka consumers share the Testcontainers Kafka from `TestcontainersConfiguration`; keep the surefire `expiry-job-interval=PT24H` approach for any new scheduled job so the suite stays deterministic.
+**Start of the next session:** run `git status` (the owner commits between phases), then `./mvnw clean test` and expect **351 green** before touching anything. Then **ask the owner the open decisions below before writing code**, and build in small verified steps (migration + partition job, producer, consumer, tests) rather than one big change.
+
+**Verified starting state (commit `b043aa7`):**
+
+- `spring-kafka` is a dependency but **no Kafka code exists in `src/main`**. Kafka config lives only in `application-dev/prod.yaml`: String key/value (de)serializers, `acks: all`, `retries: 3`, consumer `group-id: url-shortener-group`, `auto-offset-reset: earliest`. Dev and prod compose run one KRaft broker with `KAFKA_AUTO_CREATE_TOPICS_ENABLE=true` and replication factor 1, so a topic created implicitly would get a single partition: **declare topics explicitly with `NewTopic` beans** (partitions, replicas) instead.
+- `TestcontainersConfiguration` already starts Kafka (`ConfluentKafkaContainer`, bootstrap servers wired by a `DynamicPropertyRegistrar`) but nothing uses it yet.
+- The app's `ObjectMapper` bean is **Jackson 2** (`com.fasterxml`, `JavaTimeModule`, `JacksonConfig`). Because the existing config uses String serializers, serialize `ClickEvent` to a JSON string with that mapper instead of Spring Kafka's JSON serializers (Boot 4 may expect Jackson 3 classes there; not verified).
+- Hook points: `RedirectController.redirect` (after `resolveTarget` succeeds) and `PublicUrlController.unlock` (after `unlockTarget` succeeds). The client IP comes from `ClientIpUtils.resolve`. The redirect cache does not carry the link's database id.
+
+**Design decisions already made (see also the plan below):** emit only on a **successful** redirect or unlock (never on 403/404/410, including `ERR_408`); Kafka message key = `shortCode` (per-link ordering); every event has a unique `eventId` and a timestamp **set when the event is created**; consumer is idempotent and batched; failures must never break a redirect.
+
+**Pitfalls to design around (found by thinking this through, not yet tested):**
+
+1. **A dead broker can block redirects.** `KafkaTemplate.send` blocks up to `max.block.ms` (60 s by default) while metadata is unavailable. Set a small `max.block.ms` and `delivery.timeout.ms` for this producer, send asynchronously, count/log failures in the callback, and test with the broker stopped (use a dedicated container or a producer pointed at a closed port, not the shared one).
+2. **Idempotency vs partitioning.** On a partitioned table every unique constraint must include the partition key, so `event_id UNIQUE` becomes `UNIQUE (event_id, clicked_at)` and the primary key `(id, clicked_at)`. Redelivery only hits the same unique key if `clicked_at` is the **event's** timestamp, never the consumer's `now()`.
+3. **Count only rows actually inserted.** Use `INSERT ... ON CONFLICT DO NOTHING RETURNING url_id` and derive `urls.click_count` / `url_daily_stats` deltas from the returned rows, never from the batch size, or redelivered events are counted twice. Aggregate per link and apply one bulk `UPDATE` / upsert per batch (no N+1; set audit columns yourself; keep the statement-count test rule).
+4. **Resolving `url_id`:** have the event carry `shortCode` and let the consumer map codes to ids with one `SELECT id, short_code FROM urls WHERE short_code IN (...)` per batch (links deleted in the meantime still resolve: rows are soft-deleted). This keeps the cache format unchanged.
+5. **Monthly partitions:** `url_clicks` is partitioned by `clicked_at`; Flyway creates the first partitions and a scheduled job (single-runner safe like `UrlExpirationJob`) creates upcoming months; consider a DEFAULT partition so a missed month never drops data. A foreign key to the non-partitioned `urls` table is allowed.
+6. **Poison messages:** use a `DefaultErrorHandler` with bounded back-off and a `DeadLetterPublishingRecoverer` to `url-clicks.DLT`; a malformed event must not block the partition.
+7. Keep surefire's `expiry-job-interval=PT24H` approach for any new scheduled job, and make Kafka listeners deterministic in tests (wait for the consumer with Awaitility, unique `shortCode`s per test).
+
+**Open decisions to ask the owner first (give a recommendation with each):**
+
+1. **IP privacy.** Recommended: never store the raw IP; store a keyed hash (`HMAC-SHA256` with a server secret and a per-day salt over IP + User-Agent) as the visitor identifier for unique-visitor counts, and keep only coarse data (country, device, browser, OS). Alternatives: truncate to /24 (IPv4) or /48 (IPv6), or store the raw IP.
+2. **Country lookup.** Recommended: MaxMind GeoLite2 (needs a free account, a license key and an `.mmdb` file mounted into the container; decide where the file lives and how it is refreshed). Alternatives: take the country from a CDN header such as `CF-IPCountry` when behind a CDN, or skip country until it is needed.
+3. **User-Agent parsing library** (for device/browser/OS), evaluated for size and maintenance.
+4. **Retention:** how long to keep raw `url_clicks` partitions (for example 13 months) before a job drops old partitions; aggregates in `url_daily_stats` are kept.
 
 ## Product direction and development plan
 

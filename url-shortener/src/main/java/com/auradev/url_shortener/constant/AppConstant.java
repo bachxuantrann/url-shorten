@@ -13,6 +13,7 @@ public interface AppConstant {
     String API_USERS          = API_PREFIX + "/users";
     String API_ADMIN          = API_PREFIX + "/admin";
     String API_URLS           = API_PREFIX + "/urls";
+    String API_PUBLIC         = API_PREFIX + "/public";
 
     // ===== JWT =====
     String BEARER_PREFIX      = "Bearer ";
@@ -39,6 +40,7 @@ public interface AppConstant {
     // ===== SECURITY =====
     String[] PUBLIC_ENDPOINTS = {
             "/api/v1/auth/**",
+            "/api/v1/public/**",
             "/swagger-ui/**",
             "/v3/api-docs/**",
             "/actuator/health"

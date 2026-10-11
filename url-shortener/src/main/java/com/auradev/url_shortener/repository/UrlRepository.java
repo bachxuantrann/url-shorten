@@ -57,6 +57,31 @@ public interface UrlRepository extends JpaRepository<Url, Long> {
             @Param("updatedBy") String updatedBy
     );
 
+    /** Số link chưa bị xoá của một user (dùng cho hạn mức). */
+    long countByUserIdAndStatusNot(UUID userId, UrlStatusEnum excluded);
+
+    /**
+     * Chặn hàng loạt các link (ACTIVE/DISABLED/EXPIRED) có URL đích thuộc một domain, trong
+     * <b>một câu lệnh SQL</b>, và trả về short code của các link vừa bị chặn để xoá cache.
+     *
+     * <p>Là bulk update nên auditing của JPA không chạy: {@code updated_at}/{@code updated_by} set thủ công.
+     * Quét toàn bảng bằng regex nên chỉ dùng cho thao tác admin hiếm gặp.
+     *
+     * @param hostPattern regex POSIX khớp URL đích, tạo bởi {@code HostUtils.urlHostRegex}
+     */
+    @Query(value = """
+            UPDATE urls
+            SET status = 'BLOCKED', blocked_reason = :reason, updated_at = :now, updated_by = :updatedBy
+            WHERE status IN ('ACTIVE', 'DISABLED', 'EXPIRED') AND original_url ~* :hostPattern
+            RETURNING short_code
+            """, nativeQuery = true)
+    List<String> blockByHostPattern(
+            @Param("hostPattern") String hostPattern,
+            @Param("reason") String reason,
+            @Param("now") LocalDateTime now,
+            @Param("updatedBy") String updatedBy
+    );
+
     /** Tìm link theo mã công khai, mọi trạng thái (dùng cho redirect) */
     Optional<Url> findByShortCode(String shortCode);
 

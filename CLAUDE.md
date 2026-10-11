@@ -47,7 +47,7 @@ Stateless JWT, no sessions, no `UserDetailsService`. See `SecurityConfig`, `JwtA
 
 `Url` entity (table `urls`, extends `BaseEntity`) is managed by `UrlController` -> `UrlService`/`UrlServiceImpl` under `/api/v1/urls` (authenticated; ownership via `userId`). Links of other users or with status `DELETED` are always reported as `URL_NOT_FOUND` (404). `BLOCKED` links cannot be modified/disabled/deleted by their owner. Status rules live in `UrlServiceImpl` (see its Javadoc); `EXPIRED` is only revived by an update with a new expiry.
 
-Short codes: `ShortCodeGenerator` turns the next value of the Postgres sequence `short_code_seq` (`UrlRepository.nextShortCodeSequence`) into a 7-char Base62 code via a keyed Feistel permutation with cycle walking, so codes are unique by construction (bijection) and not guessable/countable. The key is `app.shortener.code-secret` (env `SHORT_CODE_SECRET`) and **must stay constant across deploys**. `app.shortener.base-url` (env `APP_BASE_URL`) builds `shortUrl` in responses. URL content checks (http/https, host present, no userinfo, max 2048) are in `UrlUtils`; SSRF/abuse rules come in Phase 4. List sorting is whitelisted in `UrlController` (`createdAt`, `clickCount`, `expiresAt`). `GET /api/v1/urls?keyword=` searches the owner's links by partial, case-insensitive match on `originalUrl` or `shortCode` (max 100 chars; `%`, `_` and `!` are escaped by `UrlServiceImpl.toLikePattern` and treated literally; combinable with `status` and paging).
+Short codes: `ShortCodeGenerator` turns the next value of the Postgres sequence `short_code_seq` (`UrlRepository.nextShortCodeSequence`) into a 7-char Base62 code via a keyed Feistel permutation with cycle walking, so codes are unique by construction (bijection) and not guessable/countable. The key is `app.shortener.code-secret` (env `SHORT_CODE_SECRET`) and **must stay constant across deploys**. `app.shortener.base-url` (env `APP_BASE_URL`) builds `shortUrl` in responses. URL content checks (http/https, host present, no userinfo, max 2048) are in `UrlUtils`; target safety rules (SSRF, loops, blocklist) are in `UrlTargetPolicy` (see Abuse protection). List sorting is whitelisted in `UrlController` (`createdAt`, `clickCount`, `expiresAt`). `GET /api/v1/urls?keyword=` searches the owner's links by partial, case-insensitive match on `originalUrl` or `shortCode` (max 100 chars; `%`, `_` and `!` are escaped by `UrlServiceImpl.toLikePattern` and treated literally; combinable with `status` and paging).
 
 ### Redirect path (Phase 2)
 
@@ -64,6 +64,15 @@ Expiry is enforced **lazily at redirect time** (`RedirectServiceImpl` compares `
 `UrlServiceImpl.toResponse` reports an `ACTIVE` link past its `expiresAt` as `EXPIRED` so the API matches redirect (410) before the job runs; the `status=` list filter still filters on the stored status. Deleted links are soft-deleted (`status=DELETED`, `deletedAt`) and their code is never reused.
 
 Time: inject the `Clock` bean (`AppConfig`) and use `LocalDateTime.now(clock)` for anything involving link expiry or cache TTL, so tests can use `Clock.fixed`. Surefire sets `app.shortener.expiry-job-interval=PT24H` so the scheduler never fires during the suite; `UrlExpirationSchedulingTest` overrides it to `PT1S` to prove the scheduling wiring.
+
+### Abuse protection (Phase 4)
+
+- **Anonymous links:** `POST /api/v1/public/urls` (`PublicUrlController`, public) creates a link with `userId = null` (`createdBy = anonymous`). Nobody owns it, so only an admin can block it. A valid/invalid token on that endpoint is ignored.
+- **Rate limiting:** `RateLimitService` (Redis fixed window, one atomic Lua script `INCR`+`EXPIRE`, key `RL:{bucket}:{subject}`), rules in `RateLimitProperties` (`app.rate-limit.anonymous-create` per client IP, default 10/h; `user-create` per user id, default 100/h; `limit <= 0` disables). Exceeding throws `RateLimitExceededException` -> HTTP 429 + `Retry-After` (`GlobalExceptionHandler`). Every request counts, including ones rejected for a bad URL. It **fails open** when Redis is down. The client IP is `request.getRemoteAddr()` (`ClientIpUtils`); `server.forward-headers-strategy: native` lets Tomcat swap in `X-Forwarded-For` **only when the peer is a trusted proxy** (private/loopback ranges), so internet clients cannot spoof it; never read that header manually. Integration tests rely on this by sending `X-Forwarded-For` from loopback to get independent counters.
+- **Per-user quota:** `app.shortener.max-links-per-user` (default 1000, `<= 0` = unlimited) counts non-deleted links with one `COUNT` (not locked, so concurrent creates can overshoot by a few) -> `URL_QUOTA_EXCEEDED` (403).
+- **Target policy** (`UrlTargetPolicy`, run on create **and** update, after `UrlUtils.validate`): (1) own host (host of `base-url` + `app.shortener.own-hosts`) -> `UNSAFE_URL_TARGET` (redirect loops); (2) unless `block-private-targets=false`, localhost, private/loopback/link-local (cloud metadata) / reserved IPv4 in any notation, private IPv6, `.local`/`.internal`/... names and single-label hosts -> `UNSAFE_URL_TARGET`; (3) `blocked_domains` (host or any parent domain, one query) -> `BLOCKED_DOMAIN`. `HostUtils` is purely syntactic and **never resolves DNS**, so a public name that resolves to a private IP is not detected; that is acceptable only while the server never fetches target URLs itself. If a feature starts fetching URLs server-side (link preview, malware scan) it must re-check the resolved IP.
+- **Admin moderation** (`ROLE_ADMIN`, `/api/v1/admin/**`): `GET/PUT /urls/{code}[/block|/unblock]` (block needs a reason, stored in `urls.blocked_reason`; unblock sets `ACTIVE`; the owner sees `status=BLOCKED` + reason but cannot modify it) and `POST/GET/DELETE /blocked-domains` (`POST` can also block every existing `ACTIVE/DISABLED/EXPIRED` link of that domain with one `UPDATE ... RETURNING` using `HostUtils.urlHostRegex`; removing a domain does **not** unblock links already blocked). Block/unblock and bulk blocking evict the redirect cache after commit.
+- Admin ops use the actor's username for `updated_by` (entity updates via auditing; the bulk statement via `AuditorAwareImpl`).
 
 ### Errors and i18n
 
@@ -84,8 +93,42 @@ All errors go through `AppException(ErrorCode, args...)`. `ErrorCode` holds the 
 ## Gotchas
 
 - `.env.dev` and `.env.prod` are intentionally tracked (public repo, placeholder values only). Real secrets are injected at deploy time, so never put real secrets in these files.
-- `spring-kafka` and `spring-boot-starter-websocket` are declared and Kafka is configured, but no code uses them yet. No click tracking, expiry job or abuse protection exists yet (Phases 3+).
+- `spring-kafka` and `spring-boot-starter-websocket` are declared and Kafka is configured, but no code uses them yet. No click tracking exists yet (Phase 6).
 - The dev profile has default JWT secret and admin credentials in `application-dev.yaml`; they must be overridden via env vars in prod.
+
+## Working agreements and open items
+
+Handoff notes so a new session can continue without the previous conversation.
+
+### How the owner wants to work
+
+- **Reply in Vietnamese.** Code comments and Javadoc are Vietnamese too (this file is English).
+- **Config goes in the profile files** (`application-dev.yaml` / `application-prod.yaml`), not in `application.yaml` (Flyway flags, shortener/rate-limit settings, `server.forward-headers-strategy`). The base file only holds truly shared things (app name, i18n, Jackson, server port).
+- **After each phase, report what was done**: what changed and why, tests added and the total, deviations from this plan, caveats, and what is **not** verified (for example Bruno requests or the owner's running IDE app, which you cannot exercise). Say plainly when something failed or was skipped.
+- **Verify yourself**: run `./mvnw test` (a few minutes, containers start first) and prove claims with tests instead of reasoning, e.g. count SQL statements with Hibernate statistics for N+1 questions. Baseline: **280 tests green at the end of Phase 4**.
+- **Do not commit or push** unless asked; the owner reviews the diff and commits between phases. Do not run destructive commands against the dev stack (`docker compose down -v`, dropping tables) without asking: the dev Postgres is the owner's.
+- **The owner edits files too** (their Bruno app rewrites request files and pastes tokens; they replaced the dev `code-secret` default). Treat on-disk changes as deliberate and never revert them.
+- Environment notes: repo files may be CRLF, so scripts that edit them must preserve line endings; very long Bash commands with many heredocs fail to parse, so write files with the file tools; Python on Windows cannot open paths over 260 characters, so use the short scratchpad path for scripts.
+
+### Bruno collection (outside the repo)
+
+`C:\Users\ADMIN\Documents\bruno\base project`, in Bruno's OpenCollection YAML format: `opencollection.yml`, one folder per area (`authentication`, `users`, `admin`, `url`) each with `folder.yml`, and one `.yml` per request (`info` / `http` / `runtime` / `settings`). Assertions and variables live in `runtime.scripts` entries of `type: after-response` (`test(...)`, `bru.setVar(...)`). Requests use runtime variables `{{accessToken}}`, `{{adminToken}}`, `{{shortCode}}`; the owner supplies tokens by logging in. When you add an endpoint, add a request to the matching folder with tests. Dev admin account: `admin` with the default from `application-dev.yaml`.
+
+### Known gaps (not yet fixed)
+
+- **Malformed JSON request body probably returns 500** instead of 400, and unknown routes for authenticated users probably return 500 too: `GlobalExceptionHandler` has no handler for `HttpMessageNotReadableException` / `NoResourceFoundException`, so they fall into the generic `Exception` handler. Believed from reading the code, not tested.
+- There is **no admin API to list or search all links** (an admin can only fetch one by short code).
+- `urls.click_count` stays 0 until click tracking (Phase 6).
+- `AppConstant.PUBLIC_ENDPOINTS` lists `/swagger-ui/**` and `/v3/api-docs/**` but springdoc is not a dependency, so those paths return 404.
+- `UserController` still has its own `getAuthenticatedUserId` helper (newer code uses `SecurityUtils`), and `UrlApiIntegrationTest` has private HTTP helpers that duplicate `support/ApiClient`.
+- Prod env: `.env.prod` still has `CHANGE_ME_*` placeholders. `APP_BASE_URL` and `SHORT_CODE_SECRET` must be real values before deploying, and `SHORT_CODE_SECRET` must never change afterwards.
+
+### Notes for the next phase (Phase 5: aliases, passwords, QR)
+
+- A custom alias lives in `urls.short_code`, so validate it with `ShortCodes.isValidFormat` (3-32 chars, `[0-9a-zA-Z_-]`) and reject `ShortCodes.isReserved`; conflicts answer 409.
+- **Collision with generated codes:** a 7-character alias can equal a code the generator will produce later. The generator currently has no retry because aliases did not exist. When adding aliases, make generation retry on a unique violation, but remember a failed `INSERT` aborts the Postgres transaction: pre-check `existsByShortCode` and retry outside the failed transaction rather than catching inside it.
+- Password-protected links change the redirect flow (`RedirectServiceImpl` and the cached `STATUS|expiresAt|originalUrl` value, which must not leak the password hash). Hash with the existing `PasswordEncoder` and limit attempts (Redis counter, same fail-open idea as `RateLimitService`).
+- QR codes are generated on the fly and never stored. Every new status or target change still needs `UrlCacheService.evictAfterCommit`.
 
 ## Product direction and development plan
 
@@ -108,7 +151,7 @@ Goal: a TinyURL-style shortener. Currently only auth/user management exists (bas
 1. **Core URL domain (DONE):** `urls` table + `UrlStatus`, short-code generator, authenticated CRUD under `/api/v1/urls` (create/get/list/update/disable/soft-delete), ownership checks (404 for other users' links), new `ErrorCode`s + i18n keys, concurrency test for code generation.
 2. **Redirect path (DONE):** public `GET /{code}` (add to `PUBLIC_ENDPOINTS`, reserved-code list), status-to-HTTP mapping, Redis cache + negative cache, TTL = min(default, time to expiry), cache invalidation on update/disable/delete/block, Redis-down fallback.
 3. **Lifecycle (DONE):** lazy expiry check on redirect, scheduled job ACTIVE -> EXPIRED (single-runner lock when multi-instance), injectable `Clock` for tests.
-4. **Anonymous links and abuse protection:** `/api/v1/public/urls`, Redis rate limiting (429 + `Retry-After`), strict URL validation (http/https only, block localhost/private IPs/SSRF and self-redirect loops), per-user quota, domain blocklist, `BLOCKED` status, admin block/unblock.
+4. **Anonymous links and abuse protection (DONE):** `/api/v1/public/urls`, Redis rate limiting (429 + `Retry-After`), strict URL validation (http/https only, block localhost/private IPs/SSRF and self-redirect loops), per-user quota, domain blocklist, `BLOCKED` status, admin block/unblock.
 5. **Link extras:** custom alias (409 on conflict), password-protected links (`password_hash`, attempt limit), QR code generated on the fly (not stored).
 6. **Click tracking (Kafka):** `url_clicks` with unique `event_id`, topic `url-clicks` keyed by `shortCode`, async producer, idempotent batch consumer with retry + dead-letter topic, enrichment (User-Agent, GeoIP) in the consumer only, privacy handling for IPs, monthly partitions.
 7. **Analytics:** `url_daily_stats` unique `(url_id, stat_date)` upserted by the consumer, batched `urls.click_count` updates, unique-visitor estimate, stats APIs (owner/admin only), reconciliation job comparing `click_count` vs `url_clicks`.

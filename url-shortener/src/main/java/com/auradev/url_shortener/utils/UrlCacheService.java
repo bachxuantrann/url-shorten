@@ -52,6 +52,9 @@ public class UrlCacheService {
     private static final String MISSING_MARKER = "MISSING";
     private static final String NO_EXPIRY = "-";
 
+    /** Số key tối đa trong một lệnh DEL. */
+    private static final int EVICT_CHUNK_SIZE = 500;
+
     private final RedisTemplate<String, String> redisTemplate;
     private final ShortenerProperties           properties;
     private final Clock                         clock;
@@ -106,14 +109,19 @@ public class UrlCacheService {
     }
 
     /**
-     * Xoá cache của nhiều link bằng <b>một</b> lệnh Redis {@code DEL} (thay vì một lệnh mỗi link).
+     * Xoá cache của nhiều link bằng một lệnh Redis {@code DEL} cho mỗi nhóm tối đa 500 key
+     * (thay vì một lệnh mỗi link).
      */
     public void evictAll(Collection<String> codes) {
         if (codes.isEmpty()) {
             return;
         }
         try {
-            redisTemplate.delete(codes.stream().map(this::key).toList());
+            // Chia nhóm để một lệnh DEL không quá lớn (admin chặn domain có thể chạm hàng nghìn link)
+            List<String> keys = codes.stream().map(this::key).toList();
+            for (int from = 0; from < keys.size(); from += EVICT_CHUNK_SIZE) {
+                redisTemplate.delete(keys.subList(from, Math.min(from + EVICT_CHUNK_SIZE, keys.size())));
+            }
         } catch (RuntimeException e) {
             log.error("Could not evict URL cache for {} link(s), stale until TTL: {}", codes.size(), e.toString());
         }

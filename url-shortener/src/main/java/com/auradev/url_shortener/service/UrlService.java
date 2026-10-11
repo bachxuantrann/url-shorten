@@ -17,7 +17,14 @@ import java.util.UUID;
  */
 public interface UrlService {
 
+    /** Tạo link cho user đã đăng nhập (kiểm tra hạn mức link của user). */
     UrlResponse create(UUID userId, CreateUrlRequest request);
+
+    /**
+     * Tạo link ẩn danh ({@code userId = null}): không ai sở hữu nên không thể sửa/xoá qua API người dùng,
+     * chỉ admin chặn được. Được bảo vệ bằng rate limit theo IP ở tầng controller.
+     */
+    UrlResponse createAnonymous(CreateUrlRequest request);
 
     UrlResponse get(UUID userId, String shortCode);
 

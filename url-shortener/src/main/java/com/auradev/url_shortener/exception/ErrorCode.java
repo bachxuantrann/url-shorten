@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
  *   <li>ERR_200–299  : Authentication / Token</li>
  *   <li>ERR_300–399  : Authorization</li>
  *   <li>ERR_400–499  : URL</li>
+ *   <li>ERR_500–599  : Chống lạm dụng (rate limit, hạn mức, blocklist)</li>
  *   <li>ERR_999      : Lỗi hệ thống</li>
  * </ul>
  */
@@ -51,6 +52,15 @@ public enum ErrorCode {
     INVALID_URL("ERR_404", "api.error.invalid_url", HttpStatus.BAD_REQUEST),
     URL_GONE("ERR_405", "api.error.url_gone", HttpStatus.GONE),
     URL_ACCESS_BLOCKED("ERR_406", "api.error.url_access_blocked", HttpStatus.FORBIDDEN),
+
+    // ===== ABUSE PROTECTION (500-599) =====
+    RATE_LIMITED("ERR_500", "api.error.rate_limited", HttpStatus.TOO_MANY_REQUESTS),
+    URL_QUOTA_EXCEEDED("ERR_501", "api.error.url_quota_exceeded", HttpStatus.FORBIDDEN),
+    UNSAFE_URL_TARGET("ERR_502", "api.error.unsafe_url_target", HttpStatus.BAD_REQUEST),
+    BLOCKED_DOMAIN("ERR_503", "api.error.blocked_domain", HttpStatus.BAD_REQUEST),
+    BLOCKED_DOMAIN_EXISTS("ERR_504", "api.error.blocked_domain_exists", HttpStatus.CONFLICT),
+    BLOCKED_DOMAIN_NOT_FOUND("ERR_505", "api.error.blocked_domain_not_found", HttpStatus.NOT_FOUND),
+    INVALID_DOMAIN("ERR_506", "api.error.invalid_domain", HttpStatus.BAD_REQUEST),
 
     // ===== SYSTEM (999) =====
     UNKNOWN_ERROR("ERR_999", "api.error.unknown", HttpStatus.INTERNAL_SERVER_ERROR);

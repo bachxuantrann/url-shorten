@@ -4,6 +4,7 @@ import com.auradev.url_shortener.dto.response.ApiResponse;
 import com.auradev.url_shortener.utils.TranslatorUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -72,6 +73,25 @@ public class GlobalExceptionHandler {
                 .build();
 
         return new ResponseEntity<>(response, errorCode.getHttpStatus());
+    }
+
+    // ===========================
+    //  2a. RATE LIMIT (429 + Retry-After)
+    // ===========================
+
+    /**
+     * Vượt giới hạn tốc độ: HTTP 429 kèm header {@code Retry-After} (giây) để client biết khi nào thử lại.
+     * Đặt riêng vì cần thêm header; Spring chọn handler cụ thể hơn {@link AppException}.
+     */
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleRateLimit(RateLimitExceededException ex) {
+        ErrorCode errorCode      = ex.getErrorCode();
+        String translatedMessage = translator.toLocale(errorCode.getMessageKey(), ex.getArgs());
+
+        return ResponseEntity
+                .status(errorCode.getHttpStatus())
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(ApiResponse.error(errorCode, translatedMessage));
     }
 
     // ===========================

@@ -8,6 +8,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,6 +20,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class ApiClient {
 
     public static final String PASSWORD = "Passw0rdTest1";
+
+    /** Tài khoản admin do {@code DataInitializer} tạo từ giá trị mặc định của profile dev. */
+    private static final String ADMIN_USERNAME = "admin";
+    private static final String ADMIN_PASSWORD = "Admin@123456";
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newBuilder()
@@ -42,6 +47,15 @@ public class ApiClient {
     }
 
     public Resp call(String method, String path, String token, String body) throws Exception {
+        return call(method, path, token, body, Map.of());
+    }
+
+    /**
+     * @param extraHeaders header bổ sung, ví dụ {@code X-Forwarded-For} để giả lập IP client khác nhau
+     *                     (Tomcat tin header này vì kết nối test đến từ loopback)
+     */
+    public Resp call(String method, String path, String token, String body, Map<String, String> extraHeaders)
+            throws Exception {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
                 .header("Content-Type", "application/json")
                 .header("Accept-Language", "en")
@@ -51,6 +65,7 @@ public class ApiClient {
         if (token != null) {
             builder.header("Authorization", "Bearer " + token);
         }
+        extraHeaders.forEach(builder::header);
         HttpResponse<String> response = HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofString());
         JsonNode json = response.body().isBlank() ? JSON.createObjectNode() : JSON.readTree(response.body());
         return new Resp(response.statusCode(), json, response.headers());
@@ -66,8 +81,17 @@ public class ApiClient {
                         + "\"password\":\"" + PASSWORD + "\",\"fullName\":\"Test User\"}");
         assertThat(register.status()).isEqualTo(201);
 
+        return login(username, PASSWORD);
+    }
+
+    /** Đăng nhập bằng tài khoản admin có sẵn và trả về access token. */
+    public String loginAsAdmin() throws Exception {
+        return login(ADMIN_USERNAME, ADMIN_PASSWORD);
+    }
+
+    private String login(String username, String password) throws Exception {
         Resp login = call("POST", "/api/v1/auth/login", null,
-                "{\"username\":\"" + username + "\",\"password\":\"" + PASSWORD + "\"}");
+                "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}");
         assertThat(login.status()).isEqualTo(200);
         return login.body().get("data").get("accessToken").asText();
     }

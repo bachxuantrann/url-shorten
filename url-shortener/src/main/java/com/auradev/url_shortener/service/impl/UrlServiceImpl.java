@@ -15,6 +15,7 @@ import com.auradev.url_shortener.service.UrlService;
 import com.auradev.url_shortener.utils.ShortCodeGenerator;
 import com.auradev.url_shortener.utils.ShortCodes;
 import com.auradev.url_shortener.utils.UrlCacheService;
+import com.auradev.url_shortener.utils.UrlTargetPolicy;
 import com.auradev.url_shortener.utils.UrlUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -50,6 +51,7 @@ public class UrlServiceImpl implements UrlService {
     private final ShortenerProperties shortenerProperties;
     private final UrlCacheService     urlCacheService;
     private final Clock               clock;
+    private final UrlTargetPolicy     urlTargetPolicy;
 
     // ===========================
     //  CREATE
@@ -58,7 +60,18 @@ public class UrlServiceImpl implements UrlService {
     @Override
     @Transactional
     public UrlResponse create(UUID userId, CreateUrlRequest request) {
-        String originalUrl = UrlUtils.validate(request.getOriginalUrl());
+        assertWithinQuota(userId);
+        return createLink(userId, request);
+    }
+
+    @Override
+    @Transactional
+    public UrlResponse createAnonymous(CreateUrlRequest request) {
+        return createLink(null, request);
+    }
+
+    private UrlResponse createLink(UUID userId, CreateUrlRequest request) {
+        String originalUrl = validateTarget(request.getOriginalUrl());
 
         // Số tuần tự duy nhất từ Postgres → mã duy nhất, an toàn khi chạy nhiều instance.
         // Bỏ qua (cực hiếm) mã trùng với từ khoá dành riêng như "swagger".
@@ -109,7 +122,7 @@ public class UrlServiceImpl implements UrlService {
         Url url = findOwned(userId, shortCode);
         assertNotBlocked(url);
 
-        url.setOriginalUrl(UrlUtils.validate(request.getOriginalUrl()));
+        url.setOriginalUrl(validateTarget(request.getOriginalUrl()));
         url.setExpiresAt(request.getExpiresAt());
 
         // Hạn mới (đã validate ở tương lai hoặc bỏ hạn) → link hết hạn được bật lại
@@ -185,6 +198,24 @@ public class UrlServiceImpl implements UrlService {
     // ===========================
     //  PRIVATE HELPERS
     // ===========================
+
+    /** Định dạng URL + chính sách an toàn (vòng lặp, địa chỉ nội bộ, blocklist). */
+    private String validateTarget(String rawUrl) {
+        String url = UrlUtils.validate(rawUrl);
+        urlTargetPolicy.check(url);
+        return url;
+    }
+
+    /**
+     * Hạn mức số link (chưa xoá) mỗi user. Kiểm tra bằng một COUNT, không khoá: nhiều request đồng thời
+     * của cùng một user có thể vượt hạn mức vài link, chấp nhận được vì đã có rate limit theo user.
+     */
+    private void assertWithinQuota(UUID userId) {
+        int max = shortenerProperties.getMaxLinksPerUser();
+        if (max > 0 && urlRepository.countByUserIdAndStatusNot(userId, UrlStatusEnum.DELETED) >= max) {
+            throw new AppException(ErrorCode.URL_QUOTA_EXCEEDED, String.valueOf(max));
+        }
+    }
 
     /** Link thuộc user và chưa bị xoá; ngược lại coi như không tồn tại. */
     private Url findOwned(UUID userId, String shortCode) {

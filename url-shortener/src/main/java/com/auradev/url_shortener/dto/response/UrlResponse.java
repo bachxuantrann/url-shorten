@@ -22,6 +22,8 @@ public class UrlResponse {
     private String shortUrl;
     private String originalUrl;
     private UrlStatusEnum status;
+    /** Lý do bị chặn (chỉ có khi status = BLOCKED) */
+    private String blockedReason;
     private LocalDateTime expiresAt;
     private long clickCount;
     private LocalDateTime createdAt;

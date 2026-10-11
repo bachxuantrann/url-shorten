@@ -6,6 +6,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Cấu hình nghiệp vụ rút gọn link, bind từ {@code application.yaml} (prefix: {@code app.shortener}).
@@ -50,4 +52,20 @@ public class ShortenerProperties {
 
     /** Số link tối đa được chuyển sang EXPIRED trong một transaction của job hết hạn. */
     private int expiryBatchSize = 500;
+
+    /** Số link (chưa xoá) tối đa mỗi user được sở hữu. */
+    private int maxLinksPerUser = 1000;
+
+    /**
+     * Chặn URL đích trỏ vào localhost, IP nội bộ/loopback/link-local (kể cả cloud metadata
+     * 169.254.169.254), tên miền nội bộ ({@code .local}, {@code .internal}...) và host một nhãn.
+     * Tắt ({@code false}) chỉ để dev rút gọn link tới dịch vụ chạy cục bộ.
+     */
+    private boolean blockPrivateTargets = true;
+
+    /**
+     * Các host thuộc về chính dịch vụ này, bị cấm làm URL đích để tránh vòng lặp redirect.
+     * Host của {@code base-url} luôn được tính, danh sách này để bổ sung (domain phụ, www...).
+     */
+    private List<String> ownHosts = new ArrayList<>();
 }

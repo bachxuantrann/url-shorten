@@ -60,4 +60,8 @@ public class Url extends BaseEntity {
 
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
+
+    /** Lý do bị chặn — chỉ có giá trị khi {@code status = BLOCKED} */
+    @Column(name = "blocked_reason", length = 255)
+    private String blockedReason;
 }

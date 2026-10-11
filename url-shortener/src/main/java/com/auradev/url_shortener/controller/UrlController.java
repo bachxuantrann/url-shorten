@@ -1,5 +1,6 @@
 package com.auradev.url_shortener.controller;
 
+import com.auradev.url_shortener.config.RateLimitProperties;
 import com.auradev.url_shortener.constant.AppConstant;
 import com.auradev.url_shortener.dto.request.CreateUrlRequest;
 import com.auradev.url_shortener.dto.request.UpdateUrlRequest;
@@ -10,6 +11,7 @@ import com.auradev.url_shortener.enums.UrlStatusEnum;
 import com.auradev.url_shortener.exception.AppException;
 import com.auradev.url_shortener.exception.ErrorCode;
 import com.auradev.url_shortener.service.UrlService;
+import com.auradev.url_shortener.utils.RateLimitService;
 import com.auradev.url_shortener.utils.SecurityUtils;
 import com.auradev.url_shortener.utils.TranslatorUtils;
 import jakarta.servlet.http.HttpServletRequest;
@@ -49,8 +51,10 @@ public class UrlController {
 
     private static final int MAX_KEYWORD_LENGTH = 100;
 
-    private final UrlService      urlService;
-    private final TranslatorUtils translator;
+    private final UrlService          urlService;
+    private final TranslatorUtils     translator;
+    private final RateLimitService    rateLimitService;
+    private final RateLimitProperties rateLimitProperties;
 
     @PostMapping
     public ResponseEntity<ApiResponse<UrlResponse>> create(
@@ -58,6 +62,7 @@ public class UrlController {
             HttpServletRequest request
     ) {
         UUID userId = SecurityUtils.getAuthenticatedUserId(request);
+        rateLimitService.check("user-create", userId.toString(), rateLimitProperties.getUserCreate());
         UrlResponse created = urlService.create(userId, body);
         String message = translator.toLocale("api.success.url_created");
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(message, created));

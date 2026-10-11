@@ -15,6 +15,11 @@ interface AuthValue {
 
 const AuthContext = createContext<AuthValue | null>(null);
 
+/** Người dùng có vai trò quản trị (chỉ để hiện/ẩn giao diện; quyền thật do server kiểm tra). */
+export function isAdmin(user: User | null): boolean {
+  return user?.roles.includes('ROLE_ADMIN') ?? false;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(() => tokenStore.access() !== null);

@@ -121,7 +121,7 @@
 	}
 
 	# ===== UI (SPA) =====
-	@ui path / /index.html /login /register /dashboard /settings /links/* /unlock/* /unavailable/* /assets/* /favicon.svg /robots.txt
+	@ui path / /index.html /login /register /dashboard /overview /settings /links/* /admin /admin/* /report /unlock/* /unavailable/* /assets/* /favicon.svg /robots.txt
 	handle @ui {
 		root * /srv
 

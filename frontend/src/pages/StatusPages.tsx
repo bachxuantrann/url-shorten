@@ -84,6 +84,9 @@ export function UnlockPage() {
         <p className="muted small" style={{ marginTop: 20 }}>
           {t('unlock.own')} <Link to="/">{t('unavailable.create')}</Link>
         </p>
+        <p className="muted small" style={{ marginTop: 8 }}>
+          <Link to={`/report?code=${encodeURIComponent(code)}`}>{t('report.link')}</Link>
+        </p>
       </div>
     </div>
   );

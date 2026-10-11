@@ -1,5 +1,5 @@
 import { request, requestBlob } from './client';
-import type { UnlockResponse, UrlResponse, UrlStats } from './types';
+import type { StatsOverview, UnlockResponse, UrlResponse, UrlStats } from './types';
 
 const enc = encodeURIComponent;
 
@@ -16,3 +16,7 @@ export const getQrPng = (code: string, size = 320) =>
 /** Nhập mật khẩu của link được bảo vệ (công khai, có giới hạn thử); đúng thì trả về đích để điều hướng. */
 export const unlockLink = (code: string, password: string) =>
   request<UnlockResponse>(`/api/v1/public/urls/${enc(code)}/unlock`, { method: 'POST', body: { password } });
+
+/** Tổng quan của mọi link của tôi; from/to dạng yyyy-MM-dd, cả hai đầu đều tính, tối đa 366 ngày. */
+export const getOverview = (from: string, to: string) =>
+  request<StatsOverview>(`/api/v1/stats/overview?from=${enc(from)}&to=${enc(to)}`, { auth: true });

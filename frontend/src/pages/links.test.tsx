@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { callsTo, created, fail, fetchMock, link, listCalls, me, mockMatchMedia, ok, pageOf, renderApp, resetServer, serve } from '../test/helpers';
@@ -393,6 +393,41 @@ describe('thao tác trên link', () => {
     expect(await screen.findByText('Đã cập nhật link')).toBeInTheDocument();
   });
 
+  it('nút Lưu của hộp thoại sửa bị khoá khi chưa đổi gì, mở khi có thay đổi và khoá lại nếu đổi về như cũ', async () => {
+    serve({
+      'GET /api/v1/users/me': me,
+      'GET /api/v1/urls': listWith(link('abc1234', { expiresAt: '2030-01-01T08:00:00' })),
+      'PUT /api/v1/urls/abc1234': () => ok(link('abc1234')),
+    });
+    renderApp('/dashboard', { authed: true });
+    await screen.findByRole('link', { name: 'sho.rt/abc1234' });
+
+    await openMenu('abc1234', 'Sửa đích');
+    const save = dialog().getByRole('button', { name: 'Lưu thay đổi' });
+    expect(save).toBeDisabled();
+
+    // Đổi đích -> mở; đổi về như cũ -> khoá lại
+    await userEvent.type(dialog().getByLabelText('URL đích'), 'x');
+    expect(save).toBeEnabled();
+    await userEvent.type(dialog().getByLabelText('URL đích'), '{Backspace}');
+    expect(save).toBeDisabled();
+
+    // Đổi hạn dùng -> mở; bỏ hạn dùng cũng là một thay đổi
+    fireEvent.change(dialog().getByLabelText('Hết hạn lúc'), { target: { value: '2031-02-02T09:30' } });
+    expect(save).toBeEnabled();
+    fireEvent.change(dialog().getByLabelText('Hết hạn lúc'), { target: { value: '2030-01-01T08:00' } });
+    expect(save).toBeDisabled();
+    await userEvent.click(dialog().getByRole('button', { name: 'Bỏ hạn dùng' }));
+    expect(save).toBeEnabled();
+
+    // Khoảng trắng thừa quanh đích không phải là thay đổi
+    await userEvent.click(dialog().getByRole('button', { name: 'Huỷ' }));
+    await openMenu('abc1234', 'Sửa đích');
+    await userEvent.type(dialog().getByLabelText('URL đích'), '   ');
+    expect(dialog().getByRole('button', { name: 'Lưu thay đổi' })).toBeDisabled();
+    expect(callsTo('PUT', '/api/v1/urls/abc1234')).toHaveLength(0);
+  });
+
   it('lỗi từ server khi sửa hiện trong hộp thoại và giữ nó mở', async () => {
     serve({
       'GET /api/v1/users/me': me,
@@ -403,6 +438,7 @@ describe('thao tác trên link', () => {
     await screen.findByRole('link', { name: 'sho.rt/abc1234' });
 
     await openMenu('abc1234', 'Sửa đích');
+    await userEvent.type(dialog().getByLabelText('URL đích'), '/changed');
     await userEvent.click(dialog().getByRole('button', { name: 'Lưu thay đổi' }));
 
     expect(await dialog().findByText('Link đích không an toàn')).toBeInTheDocument();

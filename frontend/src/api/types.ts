@@ -55,6 +55,60 @@ export interface UrlResponse {
   updatedAt: string;
 }
 
+/** Link như admin thấy: có người tạo (username, hoặc "anonymous"); link ẩn danh không có userId. */
+export interface AdminUrl extends UrlResponse {
+  userId?: string;
+  createdBy: string;
+  updatedBy: string;
+}
+
+export interface BlockedDomain {
+  id: number;
+  domain: string;
+  reason: string | null;
+  createdAt: string;
+  createdBy: string;
+  /** Chỉ có ngay sau khi thêm domain (số link hiện có vừa bị chặn). */
+  blockedLinks?: number;
+}
+
+export type AbuseReason = 'SPAM' | 'PHISHING' | 'MALWARE' | 'ILLEGAL' | 'OTHER';
+
+export type ReportStatus = 'OPEN' | 'RESOLVED' | 'DISMISSED';
+
+/** Báo cáo lạm dụng gom theo link (admin): một dòng mỗi link. */
+export interface AbuseSummary {
+  shortCode: string;
+  shortUrl: string;
+  originalUrl: string;
+  linkStatus: UrlStatus;
+  reportCount: number;
+  lastReportedAt: string;
+  reasons: Partial<Record<AbuseReason, number>>;
+}
+
+/** Một báo cáo cụ thể (admin); không có thông tin nhận dạng người báo. */
+export interface AbuseDetail {
+  id: number;
+  reason: AbuseReason;
+  details?: string;
+  createdAt: string;
+}
+
+export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'BANNED';
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  email: string;
+  fullName: string;
+  status: UserStatus;
+  roles: string[];
+  emailVerified: boolean;
+  lastLoginAt?: string;
+  createdAt: string;
+}
+
 export interface RegisterInput {
   username: string;
   email: string;
@@ -85,6 +139,36 @@ export interface UrlStats {
   to: string;
   totals: { clicks: number; botClicks: number; uniqueVisitors: number };
   daily: DailyStat[];
+  countries: BreakdownItem[];
+  devices: BreakdownItem[];
+  browsers: BreakdownItem[];
+  operatingSystems: BreakdownItem[];
+}
+
+/** Số link của người dùng theo trạng thái (link ACTIVE đã quá hạn được tính là EXPIRED). */
+export interface LinkCounts {
+  total: number;
+  active: number;
+  disabled: number;
+  expired: number;
+  blocked: number;
+}
+
+export interface TopLink {
+  shortCode: string;
+  shortUrl: string;
+  originalUrl: string;
+  clicks: number;
+}
+
+/** Tổng quan của mọi link chưa xoá của người dùng trong một khoảng ngày. */
+export interface StatsOverview {
+  from: string;
+  to: string;
+  links: LinkCounts;
+  totals: { clicks: number; botClicks: number; uniqueVisitors: number };
+  daily: DailyStat[];
+  topLinks: TopLink[];
   countries: BreakdownItem[];
   devices: BreakdownItem[];
   browsers: BreakdownItem[];

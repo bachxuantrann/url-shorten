@@ -83,7 +83,7 @@ describe('hạn dùng khi máy chủ và người dùng khác múi giờ', () =>
     expect(within(row).getByText(/12.*2026/, { selector: 'td.muted' })).toBeInTheDocument();
   });
 
-  it('sửa link: ô hạn dùng điền sẵn theo giờ người dùng, lưu không đổi gì thì gửi đúng giá trị cũ của server', async () => {
+  it('sửa link: ô hạn dùng điền sẵn theo giờ người dùng, chỉ đổi đích thì hạn dùng gửi lên đúng giá trị cũ của server', async () => {
     serve({
       ...serverUtc,
       'GET /api/v1/users/me': me,
@@ -96,12 +96,15 @@ describe('hạn dùng khi máy chủ và người dùng khác múi giờ', () =>
     await userEvent.click(within(row).getByRole('button', { name: 'Thêm thao tác' }));
     await userEvent.click(screen.getByRole('menuitem', { name: 'Sửa đích' }));
     expect(await dialog().findByLabelText('Hết hạn lúc')).toHaveValue('2030-01-02T10:04'); // 03:04 UTC = 10:04 UTC+7
+    // Chưa đổi gì thì nút Lưu bị khoá; chỉ đổi đích, không đụng tới ô hạn dùng
+    expect(dialog().getByRole('button', { name: 'Lưu thay đổi' })).toBeDisabled();
+    await userEvent.type(dialog().getByLabelText('URL đích'), '/moi');
     await userEvent.click(dialog().getByRole('button', { name: 'Lưu thay đổi' }));
 
     await waitFor(() => expect(callsTo('PUT', '/api/v1/urls/abc1234')).toHaveLength(1));
     expect(callsTo('PUT', '/api/v1/urls/abc1234')[0].body).toEqual({
-      originalUrl: 'https://example.com/abc1234',
-      expiresAt: '2030-01-02T03:04:00', // vòng đi-về không làm trôi hạn dùng
+      originalUrl: 'https://example.com/abc1234/moi',
+      expiresAt: '2030-01-02T03:04:00', // vòng đi-về múi giờ không làm trôi hạn dùng
     });
   });
 

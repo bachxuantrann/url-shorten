@@ -23,7 +23,14 @@ export function Modal({ open, onClose, title, description, children, footer }: M
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
+    if (open && !dialog.open) {
+      dialog.showModal();
+      // autoFocus của React chạy lúc <dialog> chưa mở nên không có tác dụng, còn showModal() đưa focus tới nút "Đóng":
+      // chuyển focus tới ô nhập đầu tiên của form để người dùng gõ được ngay (hộp thoại xác nhận không có ô nhập thì giữ nguyên)
+      dialog
+        .querySelector<HTMLElement>('.modal-body input:not([type="hidden"]):not([disabled]), .modal-body textarea:not([disabled]), .modal-body select:not([disabled])')
+        ?.focus();
+    }
     if (!open && dialog.open) dialog.close();
   }, [open]);
 

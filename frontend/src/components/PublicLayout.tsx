@@ -53,6 +53,7 @@ export function PublicLayout() {
         <div className="page footer-inner">
           <Logo />
           <span>{t('footer.tagline')}</span>
+          <Link to="/report">{t('report.link')}</Link>
           <span>{t('footer.rights', { year: new Date().getFullYear(), brand: BRAND.name })}</span>
         </div>
       </footer>

@@ -165,10 +165,14 @@ function EditFormReady({ link, onClose, onChanged }: { link: UrlResponse } & Omi
   const toast = useToast();
   const { busy, error, run } = useSubmit();
   const [url, setUrl] = useState(link.originalUrl);
-  const [expiresAt, setExpiresAt] = useState(time.toInput(link.expiresAt));
+  const initialExpiry = time.toInput(link.expiresAt);
+  const [expiresAt, setExpiresAt] = useState(initialExpiry);
+  // Chưa đổi gì thì không có gì để lưu (như trang hồ sơ): khoá nút thay vì gửi một PUT vô nghĩa
+  const unchanged = url.trim() === link.originalUrl && expiresAt === initialExpiry;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (unchanged) return;
     let updated: UrlResponse | undefined;
     const ok = await run(async () => {
       updated = await updateUrl(link.shortCode, { originalUrl: url.trim(), expiresAt: time.fromInput(expiresAt) });
@@ -210,7 +214,7 @@ function EditFormReady({ link, onClose, onChanged }: { link: UrlResponse } & Omi
         <Button variant="secondary" onClick={onClose}>
           {t('common.cancel')}
         </Button>
-        <Button type="submit" loading={busy} disabled={url.trim() === ''}>
+        <Button type="submit" loading={busy} disabled={url.trim() === '' || unchanged}>
           {t('common.save')}
         </Button>
       </div>

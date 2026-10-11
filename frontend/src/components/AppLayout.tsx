@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
-import { CircleHelp, Link2, Menu as MenuIcon, Plus, Settings } from 'lucide-react';
+import { BarChart3, CircleHelp, Flag, Globe, Layers, Link2, Menu as MenuIcon, Plus, Settings, Users } from 'lucide-react';
+import { isAdmin, useAuth } from '../auth/AuthProvider';
 import { useI18n } from '../i18n/I18nProvider';
 import { CreateLinkModal } from './modals';
 import { Preferences } from './Preferences';
@@ -33,10 +34,21 @@ export function AppLayout() {
   const openCreate = useCallback(() => setCreateOpen(true), []);
   const ctx = useMemo(() => ({ openCreate, createdVersion }), [openCreate, createdVersion]);
 
+  const { user } = useAuth();
   const navItems = [
+    { to: '/overview', icon: BarChart3, label: t('nav.overview') },
     { to: '/dashboard', icon: Link2, label: t('nav.links') },
     { to: '/settings', icon: Settings, label: t('nav.settings') },
   ];
+  // Mục quản trị chỉ hiện cho admin (chỉ để điều hướng: mọi API admin vẫn tự kiểm tra quyền ở server)
+  const adminItems = isAdmin(user)
+    ? [
+        { to: '/admin/links', icon: Layers, label: t('nav.admin.links') },
+        { to: '/admin/reports', icon: Flag, label: t('nav.admin.reports') },
+        { to: '/admin/domains', icon: Globe, label: t('nav.admin.domains') },
+        { to: '/admin/users', icon: Users, label: t('nav.admin.users') },
+      ]
+    : [];
 
   return (
     <CreateContext.Provider value={ctx}>
@@ -53,6 +65,17 @@ export function AppLayout() {
                 {label}
               </NavLink>
             ))}
+            {adminItems.length > 0 && (
+              <>
+                <div className="side-heading">{t('nav.admin')}</div>
+                {adminItems.map(({ to, icon: Icon, label }) => (
+                  <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'active' : undefined)}>
+                    <Icon size={18} aria-hidden="true" />
+                    {label}
+                  </NavLink>
+                ))}
+              </>
+            )}
           </nav>
           {/* Trợ giúp thay cho nút "Trang chủ" trước đây: người đang quản lý link cần câu trả lời nhanh, không cần quay về trang giới thiệu */}
           <div className="side-foot side-nav" onClick={() => setNavOpen(false)}>

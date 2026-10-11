@@ -1,7 +1,8 @@
 # =============================================
 #  docker-compose.prod.yml
 #  Mục đích: Full-stack production deployment.
-#  Bao gồm: build BE từ Dockerfile + tất cả infra.
+#  Bao gồm: Caddy (HTTPS, UI, rate limit) + build BE từ Dockerfile + tất cả infra.
+#  Chỉ Caddy mở cổng ra host (80/443); app, postgres, redis, kafka chỉ nằm trong mạng Docker.
 #
 #  Yêu cầu: File .env.prod trong cùng thư mục (không commit lên git)
 #
@@ -28,6 +29,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    # CI đẩy image lên GHCR; trên server đặt APP_IMAGE/CADDY_IMAGE rồi `docker compose pull && up -d --no-build`.
+    # Không đặt thì build tại chỗ như trước.
+    image: ${APP_IMAGE:-url-shortener-app:local}
     container_name: url_shortener_app
     restart: unless-stopped
     depends_on:
@@ -73,8 +77,13 @@ services:
       TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-0.1}
       # Server
       SERVER_PORT: ${SERVER_PORT:-8080}
-    ports:
-      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
+    # Không publish cổng app ra host: chỉ Caddy (cùng mạng Docker) gọi được app. Nếu publish thì client đi vòng qua
+    # Caddy, bỏ qua rate limit và HTTPS.
+    expose:
+      - "${SERVER_PORT:-8080}"
+    # Dừng êm: timeout-per-shutdown-phase (30 s, application-prod.yaml) chờ request đang chạy, rồi executor gửi click xả
+    # nốt hàng đợi. Phải lớn hơn tổng hai bước; mặc định của Docker là 10 s sẽ SIGKILL giữa chừng.
+    stop_grace_period: 45s
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:${SERVER_PORT:-8080}/actuator/health || exit 1"]
       interval: 30s
@@ -88,6 +97,52 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
+
+  # ===== Caddy: HTTPS + reverse proxy + UI + rate limit =====
+  # Điểm vào DUY NHẤT từ internet (80/443). Build từ thư mục gốc git (cần cả frontend/ lẫn caddy/Caddyfile).
+  # Cấu hình routing và ngưỡng rate limit: caddy/Caddyfile (ngưỡng đổi được bằng biến RATE_LIMIT_* mà không cần build lại).
+  # Phải cùng mạng Docker riêng với app: app chỉ tin X-Forwarded-For từ dải IP riêng (server.forward-headers-strategy).
+  caddy:
+    build:
+      context: ..
+      dockerfile: url-shortener/caddy/Dockerfile
+    image: ${CADDY_IMAGE:-url-shortener-caddy:local}
+    container_name: url_shortener_caddy
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      # Domain công khai, vd go.example.com (Caddy tự lấy chứng chỉ Let's Encrypt; DNS phải đã trỏ về server).
+      SITE_ADDRESS: ${SITE_ADDRESS:?SITE_ADDRESS is required (public domain)}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+      APP_PORT: ${SERVER_PORT:-8080}
+      RATE_LIMIT_API_PER_MIN: ${RATE_LIMIT_API_PER_MIN:-240}
+      RATE_LIMIT_AUTH_PER_MIN: ${RATE_LIMIT_AUTH_PER_MIN:-15}
+      RATE_LIMIT_UNLOCK_PER_MIN: ${RATE_LIMIT_UNLOCK_PER_MIN:-30}
+      RATE_LIMIT_ANON_CREATE_PER_MIN: ${RATE_LIMIT_ANON_CREATE_PER_MIN:-20}
+      RATE_LIMIT_REDIRECT_PER_MIN: ${RATE_LIMIT_REDIRECT_PER_MIN:-600}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"   # HTTP/3
+    volumes:
+      # Chứng chỉ và khoá tài khoản ACME: mất volume này thì phải xin lại (Let's Encrypt có giới hạn số lần xin)
+      - caddy_prod_data:/data
+      - caddy_prod_config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:2019/config/ > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - prod_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
   # ===== PostgreSQL =====
   postgres:
@@ -114,6 +169,44 @@ services:
       driver: "json-file"
       options:
         max-size: "20m"
+        max-file: "3"
+
+  # ===== Backup PostgreSQL (pg_dump hằng ngày) =====
+  # Bản dump ghi ra thư mục của HOST (BACKUP_DIR), nên đặt nó trên đĩa/phân vùng KHÁC với đĩa chứa volume Postgres,
+  # nếu không đĩa hỏng là mất cả hai. Giữ 7 bản ngày + 4 bản tuần. Quy trình khôi phục và restore drill: docs/deployment.md.
+  # Healthcheck báo lỗi nếu quá 26 giờ không có bản backup thành công.
+  backup:
+    image: postgres:16-alpine
+    container_name: url_shortener_backup_prod
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/opt/backup/backup.sh"]
+    command: ["loop"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${DB_USERNAME}
+      PGPASSWORD: ${DB_PASSWORD}
+      PGDATABASE: ${DB_NAME}
+      BACKUP_AT: ${BACKUP_AT:-03:15}
+      KEEP_DAILY: ${BACKUP_KEEP_DAILY:-7}
+      KEEP_WEEKLY: ${BACKUP_KEEP_WEEKLY:-4}
+    volumes:
+      - ./backup/backup.sh:/opt/backup/backup.sh:ro
+      - ${BACKUP_DIR:?BACKUP_DIR is required (host directory for database backups)}:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "find /backups/.last_success -mmin -1560 | grep -q ."]
+      interval: 1h
+      timeout: 10s
+      retries: 1
+      start_period: 26h
+    networks:
+      - prod_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
         max-file: "3"
 
   # ===== Redis =====
@@ -215,6 +308,10 @@ services:
 
 # ===== VOLUMES =====
 volumes:
+  caddy_prod_data:
+    driver: local
+  caddy_prod_config:
+    driver: local
   openobserve_prod_data:
     driver: local
   postgres_prod_data:

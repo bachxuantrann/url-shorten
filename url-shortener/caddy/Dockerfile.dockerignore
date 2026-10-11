@@ -1,0 +1,9 @@
+# Context build là thư mục gốc git: chỉ đưa vào những gì Dockerfile cần (frontend/ và Caddyfile).
+.git
+.idea
+**/node_modules
+**/dist
+**/target
+
+url-shortener/*
+!url-shortener/caddy

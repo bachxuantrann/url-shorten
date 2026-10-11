@@ -1,0 +1,144 @@
+name: Release
+
+# Phát hành: đẩy tag vX.Y.Z -> chạy CI -> build 2 image (app, caddy kèm UI) lên GHCR -> (tuỳ chọn) deploy lên server qua SSH.
+#
+# Deploy CHỈ chạy khi đã bật: biến repo DEPLOY_ENABLED=true (Settings > Secrets and variables > Actions > Variables) và đã có
+# secrets/biến bên dưới. Chưa có server thì workflow vẫn build và đẩy image, bước deploy được bỏ qua.
+# Chạy tay (workflow_dispatch) với một tag cũ = rollback: không build lại, chỉ deploy lại image của tag đó.
+# Hướng dẫn thiết lập đầy đủ: url-shortener/docs/deployment.md
+#
+# Secrets (environment `production`):
+#   DEPLOY_SSH_KEY        khoá riêng SSH của user deploy trên server (chỉ quyền deploy, không phải root)
+#   DEPLOY_KNOWN_HOSTS    kết quả `ssh-keyscan -t ed25519 <host>`, ghim khoá máy chủ để chống man-in-the-middle
+# Biến (environment `production`):
+#   DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH (thư mục chứa .env.prod trên server), SITE_ADDRESS (domain để kiểm tra sau deploy)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag đã phát hành để deploy lại (rollback), ví dụ v1.2.3'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/ci.yml
+
+  images:
+    needs: ci
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: app
+            context: url-shortener
+            file: url-shortener/Dockerfile
+          # Caddy cần cả frontend/ lẫn caddy/Caddyfile nên context là thư mục gốc
+          - name: caddy
+            context: .
+            file: url-shortener/caddy/Dockerfile
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # metadata-action tự chuyển tên image sang chữ thường (GHCR không chấp nhận chữ hoa)
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.name }}
+          tags: |
+            type=ref,event=tag
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  deploy:
+    needs: images
+    # Push tag: chỉ deploy khi `images` THÀNH CÔNG (CI hỏng thì images bị bỏ qua và deploy cũng phải dừng).
+    # Chạy tay (rollback): `images` bị bỏ qua có chủ đích, image của tag cũ đã có sẵn trên GHCR.
+    if: >-
+      ${{ always()
+      && vars.DEPLOY_ENABLED == 'true'
+      && (github.event_name == 'workflow_dispatch' || needs.images.result == 'success') }}
+    runs-on: ubuntu-24.04
+    environment: production
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      IMAGE_BASE: ghcr.io/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # Tag đi vào lệnh shell nên chỉ nhận đúng dạng phiên bản (chặn chèn lệnh qua input chạy tay)
+      - name: Validate tag
+        run: |
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "invalid tag: $TAG" >&2; exit 1 ;;
+          esac
+          printf '%s' "$TAG" | grep -Eq '^[A-Za-z0-9._-]+$'
+
+      - name: Configure SSH
+        # Secret đi qua biến môi trường (không nhúng thẳng vào script) để ký tự đặc biệt không phá lệnh
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host deploy\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/deploy_key\n  StrictHostKeyChecking yes\n' \
+            "$DEPLOY_HOST" "$DEPLOY_USER" > ~/.ssh/config
+
+      # Gửi đúng file compose và script backup của tag này để compose và image luôn cùng phiên bản.
+      # KHÔNG gửi .env.prod: file đó chứa secret thật, được tạo một lần trực tiếp trên server.
+      - name: Upload compose files
+        run: |
+          scp url-shortener/docker-compose.prod.yml deploy:"${{ vars.DEPLOY_PATH }}/docker-compose.prod.yml"
+          ssh deploy "mkdir -p '${{ vars.DEPLOY_PATH }}/backup'"
+          scp url-shortener/backup/backup.sh url-shortener/backup/restore-drill.sh deploy:"${{ vars.DEPLOY_PATH }}/backup/"
+
+      - name: Pull images and restart
+        run: |
+          IMAGE_BASE_LC="$(printf '%s' "$IMAGE_BASE" | tr '[:upper:]' '[:lower:]')"
+          ssh deploy "set -e; cd '${{ vars.DEPLOY_PATH }}'; \
+            export APP_IMAGE='${IMAGE_BASE_LC}/app:${TAG}' CADDY_IMAGE='${IMAGE_BASE_LC}/caddy:${TAG}'; \
+            docker compose --env-file .env.prod -f docker-compose.prod.yml pull app caddy; \
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --no-build --remove-orphans"
+
+      # app có start_period 90 s: chờ healthy rồi gọi thử qua Caddy từ bên ngoài (HTTPS thật)
+      - name: Wait for health and smoke test
+        run: |
+          ssh deploy 'for i in $(seq 1 60); do s=$(docker inspect url_shortener_app --format "{{.State.Health.Status}}" 2>/dev/null); [ "$s" = "healthy" ] && exit 0; sleep 5; done; echo "app not healthy: $s"; docker logs --tail 50 url_shortener_app; exit 1'
+          curl -fsS --retry 5 --retry-delay 5 -o /dev/null "https://${{ vars.SITE_ADDRESS }}/"
+          echo "deployed ${TAG}"

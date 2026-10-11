@@ -50,8 +50,12 @@ public class KafkaConfig {
     /**
      * Executor gửi event lên Kafka. Hàng đợi có giới hạn và <b>từ chối</b> khi đầy (ném
      * {@code RejectedExecutionException}, publisher đếm lại) thay vì chặn thread request.
+     *
+     * <p>{@code destroyMethod = "close"} (khác {@code shutdown}) chờ các event còn trong hàng đợi được gửi xong khi app
+     * dừng (SIGTERM lúc deploy) thay vì bỏ chúng. Producer Kafka được tạo trước executor nên đóng sau nó và vẫn
+     * gửi được trong lúc xả hàng đợi.
      */
-    @Bean(name = "clickPublishExecutor", destroyMethod = "shutdown")
+    @Bean(name = "clickPublishExecutor", destroyMethod = "close")
     public ExecutorService clickPublishExecutor(ClickProperties properties) {
         int threads = Math.max(1, properties.getPublisherThreads());
         AtomicInteger counter = new AtomicInteger();

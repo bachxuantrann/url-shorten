@@ -196,6 +196,50 @@ class LinkExtrasApiIntegrationTest {
     }
 
     @Test
+    void aBrowserOpeningAProtectedLinkIsSentToTheUnlockPageWhileApiClientsKeepTheJson403() throws Exception {
+        String code = createWithPassword(owner, "https://example.com/browser-secret", "s3cret-pw")
+                .body().get("data").get("shortCode").asText();
+
+        Resp browser = api.call("GET", "/" + code, null, null,
+                Map.of("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"));
+        Resp apiClient = api.call("GET", "/" + code, null, null, Map.of("Accept", "application/json"));
+
+        assertThat(browser.status()).isEqualTo(302);
+        assertThat(browser.header("Location")).isEqualTo("https://ui.test/unlock/" + code);
+        assertThat(browser.header("Cache-Control")).contains("no-store");
+        assertThat(apiClient.status()).isEqualTo(403);
+        assertThat(apiClient.code()).isEqualTo("ERR_408");
+    }
+
+    @Test
+    void aDisabledProtectedLinkNeverSendsABrowserToTheUnlockPage() throws Exception {
+        String code = createWithPassword(owner, "https://example.com/off", "s3cret-pw")
+                .body().get("data").get("shortCode").asText();
+        urlRepository.findByShortCode(code).ifPresent(u -> {
+            u.setStatus(com.auradev.url_shortener.enums.UrlStatusEnum.DISABLED);
+            urlRepository.save(u);
+        });
+        // Xoá cache để lần redirect đọc lại trạng thái mới từ DB
+        redisTemplate.delete("URL:" + code);
+
+        Resp browser = api.call("GET", "/" + code, null, null,
+                Map.of("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"));
+
+        assertThat(browser.status()).isEqualTo(302);
+        // Link đã tắt báo như không tồn tại (không lộ rằng nó có mật khẩu): sang trang "không tìm thấy", không phải trang unlock
+        assertThat(browser.header("Location")).isEqualTo("https://ui.test/unavailable/not-found");
+    }
+
+    @Test
+    void uiRoutesAreReservedSoNoAliasCanShadowThem() throws Exception {
+        for (String route : new String[]{"unlock", "dashboard", "links", "settings", "profile"}) {
+            Resp resp = createWithAlias(owner, "https://example.com/x", route);
+            assertThat(resp.status()).as(route).isEqualTo(409);
+            assertThat(resp.code()).as(route).isEqualTo("ERR_407");
+        }
+    }
+
+    @Test
     void theCacheOfAProtectedLinkHoldsNeitherTheTargetNorTheHash() throws Exception {
         String code = createWithPassword(owner, "https://example.com/very-secret-target", "s3cret-pw")
                 .body().get("data").get("shortCode").asText();

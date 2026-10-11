@@ -1,0 +1,145 @@
+# =============================================
+#  Caddyfile: reverse proxy cùng origin cho UI + API + short link.
+#
+#    /api/*                              -> app (có rate limit)
+#    /, /login, /register, /dashboard, /settings,
+#    /links/*, /unlock/*, /unavailable/*, /assets/* -> UI (file tĩnh trong /srv, SPA fallback về index.html)
+#    /actuator/*                         -> 404 (không lộ ra internet)
+#    mọi đường dẫn khác (GET /{code})    -> app (redirect, có rate limit)
+#
+#  Route mới của UI phải thêm vào @ui bên dưới VÀ vào ShortCodes.RESERVED ở backend, nếu không nó bị
+#  coi là short code (đi vào app) hoặc đụng alias của người dùng.
+#
+#  Biến môi trường (xem docker-compose.prod.yml / .env.prod):
+#    SITE_ADDRESS   domain công khai (vd go.example.com) -> Caddy tự lấy chứng chỉ Let's Encrypt.
+#                   Để thử cục bộ không HTTPS: http://localhost
+#    ACME_EMAIL     email nhận cảnh báo hết hạn chứng chỉ
+#    APP_PORT       cổng của app trong mạng Docker (mặc định 8080)
+#    RATE_LIMIT_*   ngưỡng số request/phút/IP của từng nhóm (mặc định bên dưới)
+# =============================================
+
+{
+	# Mặc định chỉ để Caddyfile hợp lệ khi validate/thử cục bộ; docker-compose.prod.yml bắt buộc ACME_EMAIL thật
+	email {$ACME_EMAIL:admin@localhost.invalid}
+
+	# Plugin rate limit (mholt/caddy-ratelimit) không có thứ tự mặc định: phải khai báo.
+	order rate_limit before basicauth
+
+	servers {
+		# Chống slowloris và kết nối treo
+		timeouts {
+			read_header 10s
+			read_body   30s
+			write       60s
+			idle        2m
+		}
+	}
+}
+
+# Rate limit theo IP của kết nối TCP (Caddy đứng thẳng trước internet nên đây là IP thật).
+# Nếu sau này đặt sau Cloudflare/LB thì phải thêm trusted_proxies và đổi key sang {client_ip}, nếu không mọi
+# người dùng dùng chung một IP của LB và bị giới hạn chung.
+# (rate_limit_zone <tên duy nhất> <số request> <cửa sổ>) tên phải khác nhau giữa các nơi dùng.
+(rate_limit_zone) {
+	rate_limit {
+		zone {args[0]} {
+			key    {http.request.remote.host}
+			events {args[1]}
+			window 1m
+		}
+	}
+}
+
+# Chuyển tiếp sang app. dynamic a: phân giải lại DNS của `app` mỗi vài giây nên thêm/bớt replica hoặc redeploy
+# (IP đổi) tự được nhận mà không phải khởi động lại Caddy; request gặp lúc app khởi động lại được thử lại tối đa 3 giây.
+(app_proxy) {
+	reverse_proxy {
+		dynamic a {
+			name    app
+			port    {$APP_PORT:8080}
+			refresh 5s
+		}
+		lb_try_duration 3s
+		lb_try_interval 250ms
+	}
+}
+
+{$SITE_ADDRESS:localhost} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# Actuator chỉ dùng trong mạng Docker (healthcheck), không phục vụ ra ngoài
+	@actuator path /actuator /actuator/*
+	handle @actuator {
+		respond 404
+	}
+
+	# ===== API =====
+	handle /api/* {
+		# JSON của API rất nhỏ: chặn body lớn bất thường
+		request_body {
+			max_size 64KB
+		}
+
+		# Đăng nhập, đăng ký, refresh: chống dò mật khẩu và tạo tài khoản hàng loạt
+		@auth path /api/v1/auth/login /api/v1/auth/register /api/v1/auth/refresh-token
+		handle @auth {
+			import rate_limit_zone auth {$RATE_LIMIT_AUTH_PER_MIN:15}
+			import app_proxy
+		}
+
+		# Thử mật khẩu link: app đã có giới hạn 30/15 phút theo IP, đây là lớp thô phía trước để BCrypt không bị
+		# dùng làm đòn bẩy tiêu tốn CPU
+		@unlock path_regexp unlock ^/api/v1/public/urls/[^/]+/unlock$
+		handle @unlock {
+			import rate_limit_zone unlock {$RATE_LIMIT_UNLOCK_PER_MIN:30}
+			import app_proxy
+		}
+
+		# Tạo link ẩn danh (app giới hạn thêm 10/giờ/IP)
+		@anon path /api/v1/public/urls
+		handle @anon {
+			import rate_limit_zone anon_create {$RATE_LIMIT_ANON_CREATE_PER_MIN:20}
+			import app_proxy
+		}
+
+		# Phần còn lại của API
+		handle {
+			import rate_limit_zone api {$RATE_LIMIT_API_PER_MIN:240}
+			import app_proxy
+		}
+	}
+
+	# ===== UI (SPA) =====
+	@ui path / /index.html /login /register /dashboard /settings /links/* /unlock/* /unavailable/* /assets/* /favicon.ico
+	handle @ui {
+		root * /srv
+
+		# File băm tên (assets/*) đổi nội dung thì đổi tên: cache vĩnh viễn. Còn lại (index.html) luôn kiểm tra lại
+		# để người dùng nhận bản mới ngay sau khi deploy.
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		@notHashed not path /assets/*
+		header @notHashed Cache-Control "no-cache"
+
+		# style-src 'unsafe-inline': thư viện biểu đồ gắn style trực tiếp lên phần tử SVG.
+		# img-src blob:: mã QR tải bằng fetch rồi hiện qua object URL.
+		header Content-Security-Policy "default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		header X-Frame-Options DENY
+
+		# Đường dẫn của SPA (/dashboard, /links/abc...) không có file thật: trả index.html để router phía client xử lý
+		try_files {path} /index.html
+		file_server
+	}
+
+	# ===== Short link: GET /{code} và mọi thứ còn lại =====
+	handle {
+		import rate_limit_zone redirect {$RATE_LIMIT_REDIRECT_PER_MIN:600}
+		import app_proxy
+	}
+}

@@ -253,6 +253,8 @@
 						<app.shortener.expiry-job-interval>PT24H</app.shortener.expiry-job-interval>
 						<!-- Tương tự: job phân vùng click chỉ chạy khi test gọi trực tiếp -->
 						<app.click.partition-job-interval>PT24H</app.click.partition-job-interval>
+						<!-- Địa chỉ UI cố định để test kiểm tra Location tuyệt đối khi trình duyệt được chuyển sang trang của UI -->
+						<app.shortener.ui-base-url>https://ui.test</app.shortener.ui-base-url>
 					</systemPropertyVariables>
 				</configuration>
 			</plugin>

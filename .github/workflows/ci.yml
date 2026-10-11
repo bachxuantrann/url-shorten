@@ -4,9 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Cho phép release.yml gọi lại đúng bộ kiểm tra này làm cổng trước khi build image
+  workflow_call:
 
 jobs:
-  build-and-test:
+  backend:
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -25,3 +27,40 @@ jobs:
         run: |
           chmod +x mvnw
           ./mvnw -B verify
+
+  frontend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - name: Unit tests
+        run: npm test
+      # Gồm kiểm tra kiểu TypeScript (tsc --noEmit) rồi mới đóng gói
+      - name: Type-check and build
+        run: npm run build
+
+  # Script sao lưu/khôi phục chạy trên Postgres thật trong Docker (xem url-shortener/backup/selftest.sh)
+  backup-scripts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Backup and restore-drill self-test
+        run: sh url-shortener/backup/selftest.sh
+
+  # Caddyfile sai cú pháp hoặc plugin không build được phải lộ ra ở PR, không phải lúc phát hành
+  caddy-image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build Caddy image (validates the Caddyfile)
+        run: docker build -f url-shortener/caddy/Dockerfile -t url-shortener-caddy:ci .

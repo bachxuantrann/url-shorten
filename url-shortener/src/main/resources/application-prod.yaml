@@ -1,4 +1,6 @@
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   # ===== DataSource =====
   datasource:
     url: ${DB_URL}
@@ -86,6 +88,7 @@ app:
     full-name: ${ADMIN_FULL_NAME:System Admin}
   shortener:
     base-url: ${APP_BASE_URL}
+    ui-base-url: ${UI_BASE_URL:}   # trống = cùng origin sau reverse proxy (đường dẫn tương đối)
     code-secret: ${SHORT_CODE_SECRET}
     cache-ttl: PT10M              # link được cache trong Redis tối đa 10 phút
     negative-cache-ttl: PT1M      # cache ngắn cho mã không tồn tại / link đã hết hạn
@@ -169,10 +172,13 @@ management:
             Authorization: ${OTEL_EXPORTER_OTLP_AUTHORIZATION:}
 
 # ===== Server =====
+# Dừng êm khi deploy: ngừng nhận request mới, chờ request đang chạy xong (tối đa timeout-per-shutdown-phase), rồi
+# executor gửi click xả nốt hàng đợi (KafkaConfig). stop_grace_period của compose phải lớn hơn tổng hai bước này.
 # Tin X-Forwarded-For CHỈ khi kết nối đến từ proxy tin cậy (dải IP riêng/loopback mặc định của Tomcat)
 # để rate limit theo IP thật của client khi chạy sau nginx/load balancer.
 server:
   forward-headers-strategy: native
+  shutdown: graceful
 # ===== Logging =====
 logging:
   level:

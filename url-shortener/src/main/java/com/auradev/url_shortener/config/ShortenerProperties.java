@@ -32,6 +32,13 @@ public class ShortenerProperties {
     private String baseUrl = "http://localhost:8080";
 
     /**
+     * Gốc của giao diện web, dùng khi trình duyệt mở short link mà cần chuyển sang trang của UI (nhập mật khẩu, link
+     * không còn dùng được). Để trống = cùng origin (đường dẫn tương đối), đúng khi sau reverse proxy. Dev đặt
+     * {@code http://localhost:5173} vì UI chạy ở cổng khác với API.
+     */
+    private String uiBaseUrl = "";
+
+    /**
      * Khoá bí mật để xáo trộn short code (xem {@code ShortCodeGenerator}).
      * <br>Phải cố định qua các lần deploy: đổi khoá sẽ làm các mã sinh ra sau đó
      * có thể trùng với mã đã cấp trước đó. Luôn đưa vào environment variable ở production.

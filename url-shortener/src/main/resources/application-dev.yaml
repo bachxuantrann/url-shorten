@@ -39,7 +39,9 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
-      timeout: 5000ms
+      # Timeout ngắn: Redis chậm không được kéo redirect chậm theo (circuit breaker lo phần còn lại)
+      timeout: ${REDIS_TIMEOUT:300ms}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:1s}
       lettuce:
         pool:
           max-active: 10
@@ -49,6 +51,8 @@ spring:
   # ===== Kafka =====
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    template:
+      observation-enabled: true     # span cho mỗi lần gửi, truyền trace context qua header
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -108,12 +112,60 @@ app:
     reconcile-batch-size: 1000
     reconcile-window-days: 2
 
+  resilience:
+    # Circuit breaker: mở khi >= failure-rate-threshold% trong sliding-window-size lần gọi gần nhất (tối thiểu
+    # minimum-number-of-calls); khi mở thì bỏ qua ngay, sau wait-duration-in-open-state cho thăm dò.
+    redis-cache:      { sliding-window-size: 20, minimum-number-of-calls: 10, failure-rate-threshold: 50, wait-duration-in-open-state: PT10S, permitted-calls-in-half-open: 3 }
+    redis-rate-limit: { sliding-window-size: 20, minimum-number-of-calls: 10, failure-rate-threshold: 50, wait-duration-in-open-state: PT10S, permitted-calls-in-half-open: 3 }
+    kafka-publish:    { sliding-window-size: 20, minimum-number-of-calls: 10, failure-rate-threshold: 50, wait-duration-in-open-state: PT15S, permitted-calls-in-half-open: 3 }
+
   rate-limit:
     anonymous-create: { limit: 10, window: PT1H }    # theo IP: tối đa 10 link ẩn danh mỗi giờ
     user-create: { limit: 100, window: PT1H }        # theo user: tối đa 100 link mỗi giờ
     unlock-per-ip: { limit: 30, window: PT15M }      # thử mở khoá link có mật khẩu: theo IP, mọi link
     unlock-per-link-and-ip: { limit: 10, window: PT15M }   # theo (link, IP): chặn đoán mật khẩu từ một nguồn
     unlock-per-link: { limit: 100, window: PT1H }    # theo link, mọi IP: chặn đoán mật khẩu phân tán
+
+# ===== Observability (OTLP -> OpenObserve) =====
+# Mặc định TẮT xuất dữ liệu (OTEL_EXPORT_ENABLED=false) để không có lỗi kết nối khi chưa chạy OpenObserve; trace id vẫn
+# có trong log. Bật: OTEL_EXPORT_ENABLED=true, đặt OTEL_EXPORTER_OTLP_ENDPOINT (gốc OTLP/HTTP; app thêm /v1/traces, /v1/metrics,
+# /v1/logs) và, nếu backend yêu cầu, OTEL_EXPORTER_OTLP_AUTHORIZATION (giá trị header Authorization, vd "Basic ...").
+management:
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+    export:
+      otlp:
+        enabled: ${OTEL_EXPORT_ENABLED:false}
+  logging:
+    export:
+      otlp:
+        enabled: ${OTEL_EXPORT_ENABLED:false}
+  otlp:
+    metrics:
+      export:
+        enabled: ${OTEL_EXPORT_ENABLED:true}
+        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
+        step: ${OTEL_METRICS_STEP:30s}
+        headers:
+          Authorization: ${OTEL_EXPORTER_OTLP_AUTHORIZATION:}
+  opentelemetry:
+    resource-attributes:
+      "[service.name]": ${OTEL_SERVICE_NAME:url-shortener}
+      "[service.instance.id]": ${HOSTNAME:local}
+      "[deployment.environment.name]": dev
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+          headers:
+            Authorization: ${OTEL_EXPORTER_OTLP_AUTHORIZATION:}
+    logging:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/logs
+          headers:
+            Authorization: ${OTEL_EXPORTER_OTLP_AUTHORIZATION:}
 
 # ===== Server =====
 # Tin X-Forwarded-For CHỈ khi kết nối đến từ proxy tin cậy (dải IP riêng/loopback mặc định của Tomcat)
@@ -125,7 +177,8 @@ logging:
   level:
     root: INFO
     com.auradev: DEBUG
+    org.springframework.kafka.support.LoggingProducerListener: "OFF"   # trùng với WARN của KafkaClickPublisher
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql: TRACE
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] [%X{traceId:-},%X{spanId:-}] %-5level %logger{36} - %msg%n"

@@ -59,6 +59,18 @@ services:
       SHORT_CODE_SECRET: ${SHORT_CODE_SECRET}
       CLICK_VISITOR_SECRET: ${CLICK_VISITOR_SECRET}
       GEOIP_DATABASE: ${GEOIP_DATABASE:-}
+      CLICK_RECONCILE_REPAIR: ${CLICK_RECONCILE_REPAIR:-false}
+      # Admin (DataInitializer): application-prod.yaml bắt buộc các giá trị này
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_FULL_NAME: ${ADMIN_FULL_NAME:-System Admin}
+      # Observability (OTLP -> OpenObserve), mặc định tắt. Xem docs/observability.md
+      OTEL_EXPORT_ENABLED: ${OTEL_EXPORT_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:5080/api/default}
+      OTEL_EXPORTER_OTLP_AUTHORIZATION: ${OTEL_EXPORTER_OTLP_AUTHORIZATION:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-url-shortener}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-0.1}
       # Server
       SERVER_PORT: ${SERVER_PORT:-8080}
     ports:
@@ -177,8 +189,34 @@ services:
         max-size: "20m"
         max-file: "3"
 
+  # ===== Observability: OpenObserve (tuỳ chọn) =====
+  # Chỉ chạy khi bật profile:  docker compose -f docker-compose.prod.yml --env-file .env.prod --profile observability up -d
+  # rồi đặt trong .env.prod:
+  #   OTEL_EXPORT_ENABLED=true
+  #   OTEL_EXPORTER_OTLP_ENDPOINT=http://openobserve:5080/api/default
+  #   OTEL_EXPORTER_OTLP_AUTHORIZATION="Basic <base64 của OPENOBSERVE_EMAIL:OPENOBSERVE_PASSWORD>"
+  # Giao diện chỉ nghe trên 127.0.0.1 (không lộ ra internet): truy cập qua SSH tunnel hoặc reverse proxy có xác thực.
+  # Nếu đã có backend OTLP khác thì không cần service này, chỉ trỏ OTEL_EXPORTER_OTLP_ENDPOINT tới đó.
+  openobserve:
+    image: openobserve/openobserve:v1.0.4
+    container_name: url_shortener_openobserve_prod
+    profiles: ["observability"]
+    restart: unless-stopped
+    environment:
+      ZO_ROOT_USER_EMAIL: ${OPENOBSERVE_EMAIL}
+      ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_PASSWORD}
+      ZO_DATA_DIR: /data
+    ports:
+      - "127.0.0.1:${OPENOBSERVE_PORT:-5080}:5080"
+    volumes:
+      - openobserve_prod_data:/data
+    networks:
+      - prod_network
+
 # ===== VOLUMES =====
 volumes:
+  openobserve_prod_data:
+    driver: local
   postgres_prod_data:
     driver: local
   redis_prod_data:

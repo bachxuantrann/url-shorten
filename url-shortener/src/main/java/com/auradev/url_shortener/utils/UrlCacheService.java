@@ -4,6 +4,8 @@ import com.auradev.url_shortener.config.ShortenerProperties;
 import com.auradev.url_shortener.constant.AppConstant;
 import com.auradev.url_shortener.entity.Url;
 import com.auradev.url_shortener.enums.UrlStatusEnum;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -33,7 +35,10 @@ import java.util.Optional;
  * được nạp lại từ DB.
  *
  * <p><b>Redis lỗi không bao giờ làm hỏng redirect:</b> mọi thao tác bắt exception, ghi log và
- * coi như cache miss để caller đọc thẳng DB.
+ * coi như cache miss để caller đọc thẳng DB. Đọc/ghi cache đi qua circuit breaker {@code redisCache}: khi
+ * Redis chết liên tục, breaker mở và redirect đi thẳng DB ngay mà không chờ timeout từng request. Xoá cache
+ * ({@code evict*}) cố ý <b>không</b> qua breaker: đó là thao tác hiếm và phải được thử thật để không để lại
+ * dữ liệu cũ khi Redis sống lại.
  *
  * <p><b>Xoá cache:</b> mọi thay đổi trạng thái/URL/hạn của link phải gọi {@link #evictAfterCommit}
  * (xoá <i>sau khi</i> transaction commit để reader không nạp lại dữ liệu cũ giữa lúc xoá và commit).
@@ -66,22 +71,32 @@ public class UrlCacheService {
     private final RedisTemplate<String, String> redisTemplate;
     private final ShortenerProperties           properties;
     private final Clock                         clock;
+    private final CircuitBreaker                redisCacheBreaker;
+    private final AppMetrics                    metrics;
 
     /**
      * @return giá trị trong cache; rỗng nếu cache miss, dữ liệu hỏng hoặc Redis không dùng được
      */
     public Optional<CachedUrl> get(String code) {
         try {
-            String raw = redisTemplate.opsForValue().get(key(code));
+            String raw = redisCacheBreaker.executeSupplier(() -> redisTemplate.opsForValue().get(key(code)));
             if (raw == null) {
+                metrics.cache("miss");
                 return Optional.empty();
             }
             CachedUrl cached = deserialize(raw);
             if (cached == null) {
+                metrics.cache("corrupt");
                 log.warn("Corrupted URL cache entry for code={}, ignoring", code);
+            } else {
+                metrics.cache(cached.isMissing() ? "negative_hit" : "hit");
             }
             return Optional.ofNullable(cached);
+        } catch (CallNotPermittedException e) {
+            metrics.cache("circuit_open");
+            return Optional.empty();
         } catch (RuntimeException e) {
+            metrics.cache("error");
             log.warn("Redis unavailable while reading URL cache (code={}): {}", code, e.toString());
             return Optional.empty();
         }
@@ -94,7 +109,9 @@ public class UrlCacheService {
                     + (url.getExpiresAt() == null ? NO_EXPIRY : url.getExpiresAt().toString()) + '|'
                     + (passwordProtected ? PROTECTED : NOT_PROTECTED) + '|'
                     + (passwordProtected ? "" : url.getOriginalUrl());
-            redisTemplate.opsForValue().set(key(code), value, ttlFor(url));
+            redisCacheBreaker.executeRunnable(() -> redisTemplate.opsForValue().set(key(code), value, ttlFor(url)));
+        } catch (CallNotPermittedException e) {
+            // Breaker đang mở: bỏ qua việc nạp cache, redirect vẫn chạy bằng DB
         } catch (RuntimeException e) {
             log.warn("Redis unavailable while writing URL cache (code={}): {}", code, e.toString());
         }
@@ -103,7 +120,10 @@ public class UrlCacheService {
     /** Ghi nhận mã không tồn tại trong thời gian ngắn. */
     public void putMissing(String code) {
         try {
-            redisTemplate.opsForValue().set(key(code), MISSING_MARKER, properties.getNegativeCacheTtl());
+            redisCacheBreaker.executeRunnable(
+                    () -> redisTemplate.opsForValue().set(key(code), MISSING_MARKER, properties.getNegativeCacheTtl()));
+        } catch (CallNotPermittedException e) {
+            // Breaker đang mở: bỏ qua
         } catch (RuntimeException e) {
             log.warn("Redis unavailable while writing negative URL cache (code={}): {}", code, e.toString());
         }

@@ -6,6 +6,10 @@ import com.auradev.url_shortener.service.GeoIpService;
 import com.auradev.url_shortener.utils.VisitorHasher;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.auradev.url_shortener.utils.AppMetrics;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.AfterEach;
@@ -72,7 +76,8 @@ class KafkaClickPublisherTest {
     }
 
     private KafkaClickPublisher inline(KafkaTemplate<String, String> template) {
-        return new KafkaClickPublisher(template, objectMapper, properties, hasher, geoIpService, CLOCK, Runnable::run);
+        return new KafkaClickPublisher(template, objectMapper, properties, hasher, geoIpService, CLOCK, Runnable::run,
+                breaker(), new AppMetrics(new SimpleMeterRegistry()));
     }
 
     private MockHttpServletRequest request(String method) {
@@ -214,7 +219,8 @@ class KafkaClickPublisherTest {
                 ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, 5000));
         smallExecutor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
                 new ArrayBlockingQueue<>(queueSize), new ThreadPoolExecutor.AbortPolicy());
-        return new KafkaClickPublisher(new KafkaTemplate<>(deadFactory), objectMapper, properties, hasher, geoIpService, CLOCK, smallExecutor);
+        return new KafkaClickPublisher(new KafkaTemplate<>(deadFactory), objectMapper, properties, hasher, geoIpService, CLOCK,
+                smallExecutor, breaker(), new AppMetrics(new SimpleMeterRegistry()));
     }
 
     @Test
@@ -244,6 +250,55 @@ class KafkaClickPublisherTest {
 
         // Các event đã vào hàng đợi rốt cuộc thất bại (metadata timeout) và được đếm, không ai bị ném lỗi
         await().atMost(15, TimeUnit.SECONDS).untilAsserted(
-                () -> assertThat(publisher.failedCount() + publisher.droppedCount()).isEqualTo(50));
+                () -> assertThat(publisher.failedCount() + publisher.droppedCount() + publisher.skippedCount()).isEqualTo(50));
     }
+
+    // ===========================
+    //  CIRCUIT BREAKER
+    // ===========================
+
+    private CircuitBreaker lastBreaker;
+
+    private CircuitBreaker breaker() {
+        lastBreaker = CircuitBreaker.of("test", CircuitBreakerConfig.custom()
+                .slidingWindowSize(4).minimumNumberOfCalls(4).failureRateThreshold(50)
+                .waitDurationInOpenState(java.time.Duration.ofSeconds(60)).build());
+        return lastBreaker;
+    }
+
+    @Test
+    void afterRepeatedFailuresTheBreakerOpensAndEventsAreSkippedWithoutCallingKafka() {
+        @SuppressWarnings("unchecked")
+        KafkaTemplate<String, String> template = mock(KafkaTemplate.class);
+        when(template.send(anyString(), anyString(), anyString())).thenThrow(new IllegalStateException("broker down"));
+        KafkaClickPublisher publisher = inline(template);
+
+        for (int i = 0; i < 4; i++) {
+            publisher.publish("abc1234", request("GET"));
+        }
+        assertThat(lastBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+        for (int i = 0; i < 10; i++) {
+            publisher.publish("abc1234", request("GET"));
+        }
+
+        verify(template, org.mockito.Mockito.times(4)).send(anyString(), anyString(), anyString());
+        assertThat(publisher.failedCount()).isEqualTo(4);
+        assertThat(publisher.skippedCount()).isEqualTo(10);
+    }
+
+    @Test
+    void successfulDeliveriesKeepTheBreakerClosed() {
+        KafkaTemplate<String, String> template = mockTemplate();
+        when(template.send(anyString(), anyString(), anyString()))
+                .thenReturn(CompletableFuture.completedFuture(null));
+        KafkaClickPublisher publisher = inline(template);
+
+        for (int i = 0; i < 20; i++) {
+            publisher.publish("abc1234", request("GET"));
+        }
+
+        assertThat(lastBreaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+        assertThat(publisher.skippedCount()).isZero();
+    }
+
 }

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Giữ nguyên cấu hình log mặc định của Spring Boot (console, pattern và mức log lấy từ application-*.yaml),
+    và thêm appender OpenTelemetry để đẩy log sang OTLP (OpenObserve) kèm traceId/spanId của request đang chạy.
+
+    Appender chỉ có tác dụng sau khi OpenTelemetryLogbackInstaller gắn nó với bean OpenTelemetry; khi xuất
+    log OTLP bị tắt (management.logging.export.otlp.enabled=false) thì bản ghi bị bỏ, gần như không tốn gì.
+    Không đặt thuộc tính level ở thẻ root thứ hai để không ghi đè mức log đã cấu hình.
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/base.xml"/>
+
+    <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+        <captureKeyValuePairAttributes>true</captureKeyValuePairAttributes>
+        <captureMdcAttributes>*</captureMdcAttributes>
+    </appender>
+
+    <root>
+        <appender-ref ref="OTEL"/>
+    </root>
+</configuration>

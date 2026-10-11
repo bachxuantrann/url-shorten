@@ -1,7 +1,10 @@
 package com.auradev.url_shortener.controller;
 
+import com.auradev.url_shortener.exception.AppException;
 import com.auradev.url_shortener.service.ClickPublisher;
 import com.auradev.url_shortener.service.RedirectService;
+import com.auradev.url_shortener.utils.AppMetrics;
+import io.micrometer.core.instrument.Timer;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
@@ -29,15 +32,27 @@ public class RedirectController {
 
     private final RedirectService redirectService;
     private final ClickPublisher  clickPublisher;
+    private final AppMetrics      metrics;
 
     @GetMapping("/{code}")
     public ResponseEntity<Void> redirect(@PathVariable String code, HttpServletRequest request) {
-        String target = redirectService.resolveTarget(code);
-        // Chỉ tính click khi redirect thành công (không phải 403/404/410); không bao giờ ném lỗi
-        clickPublisher.publish(code, request);
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(target))
-                .cacheControl(CacheControl.noStore())
-                .build();
+        Timer.Sample sample = metrics.startTimer();
+        String outcome = "redirect";
+        try {
+            String target = redirectService.resolveTarget(code);
+            // Chỉ tính click khi redirect thành công (không phải 403/404/410); không bao giờ ném lỗi
+            clickPublisher.publish(code, request);
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(target))
+                    .cacheControl(CacheControl.noStore())
+                    .build();
+        } catch (AppException e) {
+            outcome = e.getErrorCode().name().toLowerCase();
+            throw e;
+        } finally {
+            // Tag outcome có số giá trị hữu hạn (ErrorCode); lỗi bất ngờ vẫn được đo là "redirect" chứ không
+            // tạo tag mới, vì đã có trace/log cho trường hợp đó
+            metrics.recordRedirect(sample, outcome);
+        }
     }
 }

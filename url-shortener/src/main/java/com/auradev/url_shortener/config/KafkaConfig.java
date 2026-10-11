@@ -1,5 +1,7 @@
 package com.auradev.url_shortener.config;
 
+import io.micrometer.context.ContextExecutorService;
+import io.micrometer.context.ContextSnapshotFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.TopicPartition;
@@ -58,11 +60,15 @@ public class KafkaConfig {
             thread.setDaemon(true);
             return thread;
         };
-        return new ThreadPoolExecutor(
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(
                 threads, threads, 0L, TimeUnit.MILLISECONDS,
                 new ArrayBlockingQueue<>(Math.max(1, properties.getPublisherQueueSize())),
                 factory,
                 new ThreadPoolExecutor.AbortPolicy());
+        // Mang theo observation hiện tại (trace của request redirect) sang thread gửi, để span Kafka là con
+        // của request và consumer nối tiếp cùng một trace
+        ContextSnapshotFactory snapshots = ContextSnapshotFactory.builder().build();
+        return ContextExecutorService.wrap(pool, snapshots::captureAll);
     }
 
     /**

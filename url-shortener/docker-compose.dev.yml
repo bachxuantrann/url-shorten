@@ -106,8 +106,30 @@ services:
     networks:
       - dev_network
 
+  # ===== Observability: OpenObserve (log + trace + metric trong MỘT container) =====
+  # Nhận OTLP/HTTP của app tại http://localhost:5080/api/default (app tự thêm /v1/traces, /v1/metrics, /v1/logs).
+  # Giao diện: http://localhost:5080, đăng nhập bằng OPENOBSERVE_EMAIL / OPENOBSERVE_PASSWORD bên dưới.
+  # Tài khoản root chỉ được tạo ở lần chạy đầu tiên (đổi giá trị sau đó không có tác dụng trừ khi xoá volume).
+  # Giá trị mặc định chỉ dành cho dev cục bộ.
+  openobserve:
+    image: openobserve/openobserve:v1.0.4
+    container_name: url_shortener_openobserve_dev
+    restart: unless-stopped
+    environment:
+      ZO_ROOT_USER_EMAIL: ${OPENOBSERVE_EMAIL:-dev@example.com}
+      ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_PASSWORD:-DevOnly#12345}
+      ZO_DATA_DIR: /data
+    ports:
+      - "${OPENOBSERVE_PORT:-5080}:5080"
+    volumes:
+      - openobserve_dev_data:/data
+    networks:
+      - dev_network
+
 # ===== VOLUMES =====
 volumes:
+  openobserve_dev_data:
+    driver: local
   postgres_dev_data:
     driver: local
   redis_dev_data:

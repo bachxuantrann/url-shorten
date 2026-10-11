@@ -6,6 +6,7 @@ import com.auradev.url_shortener.repository.UrlClickRepository.ClickRow;
 import com.auradev.url_shortener.repository.UrlRepository;
 import com.auradev.url_shortener.repository.UrlRepository.IdAndCode;
 import com.auradev.url_shortener.service.ClickIngestService;
+import com.auradev.url_shortener.utils.AppMetrics;
 import com.auradev.url_shortener.utils.UserAgentParser;
 import com.auradev.url_shortener.utils.UserAgentParser.Parsed;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class ClickIngestServiceImpl implements ClickIngestService {
 
     private final UrlRepository      urlRepository;
     private final UrlClickRepository clickRepository;
+    private final AppMetrics         metrics;
 
     @Override
     @Transactional
@@ -57,7 +59,9 @@ public class ClickIngestServiceImpl implements ClickIngestService {
                 .map(event -> toRow(event, idByCode.get(event.shortCode())))
                 .toList();
 
-        return clickRepository.insertBatch(rows);
+        int inserted = clickRepository.insertBatch(rows);
+        metrics.ingestBatch(events.size(), inserted);
+        return inserted;
     }
 
     private ClickRow toRow(ClickEvent event, long urlId) {

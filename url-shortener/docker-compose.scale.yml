@@ -1,0 +1,134 @@
+# =============================================
+#  docker-compose.scale.yml
+#  Mục đích: chạy NHIỀU instance của app sau nginx để thử tải (k6) và thử sự cố (chaos).
+#  KHÔNG dùng cho production và KHÔNG đụng tới stack dev: project riêng (url-shortener-scale), mạng và
+#  volume riêng, chỉ mở một cổng ra máy host (nginx, mặc định 8081).
+#
+#  Dùng profile `prod` của app với các giá trị thử nghiệm cố định bên dưới (không phải bí mật thật).
+#
+#  Cách dùng (chạy trong thư mục url-shortener/):
+#    docker compose -f docker-compose.scale.yml up -d --build        # 2 instance app + nginx + infra
+#    docker compose -f docker-compose.scale.yml up -d --scale app=3  # đổi số instance (xem ghi chú nginx)
+#    docker compose -f docker-compose.scale.yml down -v              # xoá sạch, kể cả dữ liệu thử
+#
+#  Hướng dẫn thử tải và thử sự cố: docs/load-and-chaos-tests.md
+# =============================================
+
+name: url-shortener-scale
+
+services:
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "${SCALE_PORT:-8081}:80"
+    volumes:
+      - ./load-test/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - scale_network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: url-shortener-scale:local
+    deploy:
+      replicas: ${SCALE_APP_REPLICAS:-2}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://postgres:5432/scale_db
+      DB_USERNAME: scale
+      DB_PASSWORD: scale-test-password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: scale-test-redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      JWT_SECRET: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: Scale@Test12345
+      ADMIN_EMAIL: admin@scale.test
+      ADMIN_FULL_NAME: Scale Admin
+      APP_BASE_URL: http://localhost:${SCALE_PORT:-8081}
+      SHORT_CODE_SECRET: 3b8a535abb7ec29b3b49383e0e6d22e64b74555ce6263071e7ce5c39bb4ead8e
+      CLICK_VISITOR_SECRET: scale-test-visitor-secret
+      # Hai instance cùng consume: số partition >= số instance để cả hai đều nhận việc
+      CLICK_TOPIC_PARTITIONS: 4
+      # Gửi telemetry tới OpenObserve của stack dev (http://host.docker.internal:5080/api/default) khi đặt
+      # OTEL_EXPORT_ENABLED=true và OTEL_EXPORTER_OTLP_AUTHORIZATION="Basic ..." lúc chạy compose
+      OTEL_EXPORT_ENABLED: ${OTEL_EXPORT_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://host.docker.internal:5080/api/default}
+      OTEL_EXPORTER_OTLP_AUTHORIZATION: ${OTEL_EXPORTER_OTLP_AUTHORIZATION:-}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-0.1}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    networks:
+      - scale_network
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: scale_db
+      POSTGRES_USER: scale
+      POSTGRES_PASSWORD: scale-test-password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scale -d scale_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - scale_network
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass scale-test-redis --maxmemory 256mb --maxmemory-policy allkeys-lru --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "scale-test-redis", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - scale_network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_LISTENERS: PLAINTEXT_INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT_INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:29092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - scale_network
+
+networks:
+  scale_network:
+    driver: bridge

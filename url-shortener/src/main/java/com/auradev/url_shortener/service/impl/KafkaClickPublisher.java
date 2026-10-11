@@ -4,9 +4,12 @@ import com.auradev.url_shortener.config.ClickProperties;
 import com.auradev.url_shortener.event.ClickEvent;
 import com.auradev.url_shortener.service.ClickPublisher;
 import com.auradev.url_shortener.service.GeoIpService;
+import com.auradev.url_shortener.config.ResilienceConfig;
+import com.auradev.url_shortener.utils.AppMetrics;
 import com.auradev.url_shortener.utils.ClientIpUtils;
 import com.auradev.url_shortener.utils.VisitorHasher;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -19,6 +22,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -28,6 +32,10 @@ import java.util.concurrent.atomic.LongAdder;
  * hàng đợi giới hạn ({@code KafkaConfig#clickPublishExecutor}). {@code KafkaTemplate.send} có thể chặn
  * tới {@code max.block.ms} khi broker chết nên không được gọi trên thread request. Hàng đợi đầy thì
  * event bị bỏ và đếm vào {@link #droppedCount()}; gửi thất bại đếm vào {@link #failedCount()}.
+ *
+ * <p>Circuit breaker {@code kafkaPublish}: broker chết thì mỗi lần gửi tốn tới {@code max.block.ms} của một
+ * thread; sau một loạt lỗi breaker mở và event bị bỏ ngay ({@link #skippedCount()}) để các thread không bị kẹt
+ * và hàng đợi không đầy vô ích. Sau thời gian chờ breaker cho thăm dò vài lần để tự đóng lại khi broker sống.
  *
  * <p>Request <b>HEAD</b> (health check, trình xem trước link) không được tính.
  */
@@ -44,9 +52,12 @@ public class KafkaClickPublisher implements ClickPublisher {
     private final GeoIpService                  geoIpService;
     private final Clock                         clock;
     private final Executor                      executor;
+    private final CircuitBreaker                breaker;
+    private final AppMetrics                    metrics;
 
     private final LongAdder dropped = new LongAdder();
     private final LongAdder failed  = new LongAdder();
+    private final LongAdder skipped = new LongAdder();
 
     public KafkaClickPublisher(
             KafkaTemplate<String, String> kafkaTemplate,
@@ -55,7 +66,9 @@ public class KafkaClickPublisher implements ClickPublisher {
             VisitorHasher visitorHasher,
             GeoIpService geoIpService,
             Clock clock,
-            @Qualifier("clickPublishExecutor") Executor executor
+            @Qualifier("clickPublishExecutor") Executor executor,
+            @Qualifier(ResilienceConfig.KAFKA_PUBLISH) CircuitBreaker breaker,
+            AppMetrics metrics
     ) {
         this.kafkaTemplate = kafkaTemplate;
         this.objectMapper  = objectMapper;
@@ -64,6 +77,8 @@ public class KafkaClickPublisher implements ClickPublisher {
         this.geoIpService  = geoIpService;
         this.clock         = clock;
         this.executor      = executor;
+        this.breaker       = breaker;
+        this.metrics       = metrics;
     }
 
     @Override
@@ -76,9 +91,11 @@ public class KafkaClickPublisher implements ClickPublisher {
             executor.execute(() -> send(event));
         } catch (RejectedExecutionException e) {
             dropped.increment();
+            metrics.click("dropped");
             log.warn("Click event dropped, publish queue is full (code={})", shortCode);
         } catch (RuntimeException e) {
             failed.increment();
+            metrics.click("failed");
             log.warn("Could not create click event (code={})", shortCode, e);
         }
     }
@@ -111,18 +128,38 @@ public class KafkaClickPublisher implements ClickPublisher {
                 userAgent);
     }
 
+    /** Số event bị bỏ vì circuit breaker đang mở. */
+    public long skippedCount() {
+        return skipped.sum();
+    }
+
     private void send(ClickEvent event) {
+        if (!breaker.tryAcquirePermission()) {
+            skipped.increment();
+            metrics.click("skipped_circuit_open");
+            return;
+        }
+        long start = System.nanoTime();
         try {
             String json = objectMapper.writeValueAsString(event);
             kafkaTemplate.send(properties.getTopic(), event.shortCode(), json).whenComplete((result, error) -> {
+                long elapsed = System.nanoTime() - start;
                 if (error != null) {
+                    breaker.onError(elapsed, TimeUnit.NANOSECONDS, error);
                     failed.increment();
+                    metrics.click("failed");
                     log.warn("Click event not delivered (code={}, eventId={}): {}",
                             event.shortCode(), event.eventId(), error.toString());
+                } else {
+                    breaker.onSuccess(elapsed, TimeUnit.NANOSECONDS);
+                    metrics.click("published");
                 }
             });
         } catch (Exception e) {
+            // Mỗi permission đã lấy phải được trả bằng đúng một onSuccess/onError, kể cả khi send ném đồng bộ
+            breaker.onError(System.nanoTime() - start, TimeUnit.NANOSECONDS, e);
             failed.increment();
+            metrics.click("failed");
             log.warn("Click event not sent (code={}, eventId={}): {}", event.shortCode(), event.eventId(), e.toString());
         }
     }

@@ -2,6 +2,8 @@ package com.auradev.url_shortener.utils;
 
 import com.auradev.url_shortener.config.RateLimitProperties.Rule;
 import com.auradev.url_shortener.exception.RateLimitExceededException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -21,7 +23,8 @@ import java.util.List;
  * cửa sổ. Chấp nhận được cho mục đích chống spam tạo link.
  *
  * <p><b>Fail-open:</b> nếu Redis không dùng được, request vẫn được cho qua (và ghi log cảnh báo) để một
- * sự cố Redis không làm sập chức năng tạo link, cùng triết lý với cache redirect.
+ * sự cố Redis không làm sập chức năng tạo link, cùng triết lý với cache redirect. Circuit breaker
+ * {@code redisRateLimit} cắt các lần chờ timeout liên tiếp: khi mở, giới hạn bị bỏ qua ngay.
  */
 @Slf4j
 @Component
@@ -47,6 +50,7 @@ public class RateLimitService {
             List.class);
 
     private final RedisTemplate<String, String> redisTemplate;
+    private final CircuitBreaker                redisRateLimitBreaker;
 
     /**
      * Ghi nhận một request và kiểm tra giới hạn.
@@ -63,8 +67,11 @@ public class RateLimitService {
         long windowSeconds = Math.max(1, rule.getWindow().toSeconds());
         List<?> result;
         try {
-            result = redisTemplate.execute(
-                    INCREMENT_SCRIPT, List.of(KEY_PREFIX + bucket + ":" + subject), String.valueOf(windowSeconds));
+            result = redisRateLimitBreaker.executeSupplier(() -> redisTemplate.execute(
+                    INCREMENT_SCRIPT, List.of(KEY_PREFIX + bucket + ":" + subject), String.valueOf(windowSeconds)));
+        } catch (CallNotPermittedException e) {
+            log.debug("Redis circuit open, rate limit skipped (bucket={})", bucket);
+            return;
         } catch (RuntimeException e) {
             log.warn("Redis unavailable, rate limit skipped (bucket={}): {}", bucket, e.toString());
             return;

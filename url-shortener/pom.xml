@@ -22,6 +22,10 @@
 		<zxing.version>3.5.3</zxing.version>
 		<geoip2.version>4.2.1</geoip2.version>
 		<uap.version>1.6.1</uap.version>
+		<!-- Phải khớp opentelemetry.version (1.62.0) mà Spring Boot quản lý: instrumentation 2.28.0 build với API 1.62.0 -->
+		<otel-logback-appender.version>2.28.0-alpha</otel-logback-appender.version>
+		<resilience4j.version>2.4.0</resilience4j.version>
+		<datasource-micrometer.version>2.3.0</datasource-micrometer.version>
 	</properties>
 
 	<dependencies>
@@ -113,6 +117,37 @@
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-opentelemetry</artifactId>
+		</dependency>
+
+		<!-- Đẩy log Logback sang OTLP (cùng traceId/spanId với trace) -->
+		<dependency>
+			<groupId>io.opentelemetry.instrumentation</groupId>
+			<artifactId>opentelemetry-logback-appender-1.0</artifactId>
+			<version>${otel-logback-appender.version}</version>
+		</dependency>
+		<!-- Trace cho các câu lệnh JDBC (span con của request) -->
+		<dependency>
+			<groupId>net.ttddyy.observation</groupId>
+			<artifactId>datasource-micrometer-spring-boot</artifactId>
+			<version>${datasource-micrometer.version}</version>
+		</dependency>
+
+		<!-- ===== RESILIENCE ===== -->
+		<!-- Dùng thư viện lõi lập trình trực tiếp, không dùng resilience4j-spring-boot (nhắm Boot 3, cần AOP) -->
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-circuitbreaker</artifactId>
+			<version>${resilience4j.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-micrometer</artifactId>
+			<version>${resilience4j.version}</version>
+		</dependency>
+
 		<!-- ===== QR CODE ===== -->
 		<dependency>
 			<groupId>com.google.zxing</groupId>
@@ -160,6 +195,11 @@
 		<dependency>
 			<groupId>org.springframework.kafka</groupId>
 			<artifactId>spring-kafka-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-sdk-testing</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>

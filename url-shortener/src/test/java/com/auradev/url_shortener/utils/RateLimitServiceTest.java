@@ -2,6 +2,8 @@ package com.auradev.url_shortener.utils;
 
 import com.auradev.url_shortener.config.RateLimitProperties.Rule;
 import com.auradev.url_shortener.exception.RateLimitExceededException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.RedisConnectionFailureException;
@@ -30,12 +32,33 @@ class RateLimitServiceTest {
 
     private RedisTemplate<String, String> redisTemplate;
     private RateLimitService service;
+    private CircuitBreaker breaker;
 
     @SuppressWarnings("unchecked")
     @BeforeEach
     void setUp() {
         redisTemplate = mock(RedisTemplate.class);
-        service = new RateLimitService(redisTemplate);
+        breaker = CircuitBreaker.of("test", CircuitBreakerConfig.custom()
+                .slidingWindowSize(4).minimumNumberOfCalls(4).failureRateThreshold(50)
+                .waitDurationInOpenState(Duration.ofSeconds(60)).build());
+        service = new RateLimitService(redisTemplate, breaker);
+    }
+
+    @Test
+    void theBreakerOpensAfterRepeatedRedisFailuresAndLimitsAreSkippedWithoutCallingRedis() {
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenThrow(new RedisConnectionFailureException("redis down"));
+
+        for (int i = 0; i < 4; i++) {
+            service.check("bucket", "subject", RULE);
+        }
+        assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+        for (int i = 0; i < 10; i++) {
+            assertThatCode(() -> service.check("bucket", "subject", RULE)).doesNotThrowAnyException();
+        }
+
+        org.mockito.Mockito.verify(redisTemplate, org.mockito.Mockito.times(4))
+                .execute(any(RedisScript.class), anyList(), any(Object[].class));
     }
 
     @Test

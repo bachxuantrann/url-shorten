@@ -22,6 +22,8 @@ public class UrlResponse {
     private String shortUrl;
     private String originalUrl;
     private UrlStatusEnum status;
+    /** Link có đặt mật khẩu hay không (không bao giờ trả về mật khẩu hay hash) */
+    private boolean passwordProtected;
     /** Lý do bị chặn (chỉ có khi status = BLOCKED) */
     private String blockedReason;
     private LocalDateTime expiresAt;

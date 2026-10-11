@@ -22,9 +22,15 @@ import java.util.Optional;
 /**
  * Cache Redis cho đường redirect (cache-aside).
  *
- * <p>Key {@code URL:{shortCode}}, giá trị dạng chuỗi nhỏ gọn {@code STATUS|expiresAt|originalUrl}
- * ({@code expiresAt} là {@code -} nếu không có hạn) hoặc {@code MISSING} khi mã không tồn tại
- * (negative cache). URL đứng cuối nên được phép chứa ký tự {@code |}.
+ * <p>Key {@code URL:{shortCode}}, giá trị dạng chuỗi nhỏ gọn {@code STATUS|expiresAt|protected|originalUrl}
+ * ({@code expiresAt} là {@code -} nếu không có hạn; {@code protected} là {@code P} nếu link có mật khẩu,
+ * ngược lại {@code -}) hoặc {@code MISSING} khi mã không tồn tại (negative cache). URL đứng cuối nên
+ * được phép chứa ký tự {@code |}.
+ *
+ * <p><b>Link có mật khẩu không bao giờ có URL đích trong cache</b> (trường cuối để trống) và hash mật
+ * khẩu không được cache: cache chỉ đủ để trả lời "cần mật khẩu"; URL đích chỉ lấy từ DB sau khi mật khẩu
+ * được xác minh ở {@code RedirectService.unlockTarget}. Mục có định dạng cũ (3 trường) bị coi là hỏng và
+ * được nạp lại từ DB.
  *
  * <p><b>Redis lỗi không bao giờ làm hỏng redirect:</b> mọi thao tác bắt exception, ghi log và
  * coi như cache miss để caller đọc thẳng DB.
@@ -40,17 +46,19 @@ import java.util.Optional;
 public class UrlCacheService {
 
     /** Thông tin tối thiểu để quyết định redirect. */
-    public record CachedUrl(UrlStatusEnum status, LocalDateTime expiresAt, String originalUrl) {
+    public record CachedUrl(UrlStatusEnum status, LocalDateTime expiresAt, boolean passwordProtected, String originalUrl) {
         public boolean isMissing() {
             return status == null;
         }
     }
 
     /** Kết quả "mã không tồn tại" đã được cache. */
-    public static final CachedUrl MISSING = new CachedUrl(null, null, null);
+    public static final CachedUrl MISSING = new CachedUrl(null, null, false, null);
 
     private static final String MISSING_MARKER = "MISSING";
     private static final String NO_EXPIRY = "-";
+    private static final String PROTECTED = "P";
+    private static final String NOT_PROTECTED = "-";
 
     /** Số key tối đa trong một lệnh DEL. */
     private static final int EVICT_CHUNK_SIZE = 500;
@@ -81,9 +89,11 @@ public class UrlCacheService {
 
     public void put(String code, Url url) {
         try {
+            boolean passwordProtected = url.getPasswordHash() != null;
             String value = url.getStatus().name() + '|'
                     + (url.getExpiresAt() == null ? NO_EXPIRY : url.getExpiresAt().toString()) + '|'
-                    + url.getOriginalUrl();
+                    + (passwordProtected ? PROTECTED : NOT_PROTECTED) + '|'
+                    + (passwordProtected ? "" : url.getOriginalUrl());
             redisTemplate.opsForValue().set(key(code), value, ttlFor(url));
         } catch (RuntimeException e) {
             log.warn("Redis unavailable while writing URL cache (code={}): {}", code, e.toString());
@@ -188,14 +198,14 @@ public class UrlCacheService {
         if (MISSING_MARKER.equals(raw)) {
             return MISSING;
         }
-        String[] parts = raw.split("\\|", 3);
-        if (parts.length != 3) {
+        String[] parts = raw.split("\\|", 4);
+        if (parts.length != 4 || !(PROTECTED.equals(parts[2]) || NOT_PROTECTED.equals(parts[2]))) {
             return null;
         }
         try {
             UrlStatusEnum status = UrlStatusEnum.valueOf(parts[0]);
             LocalDateTime expiresAt = NO_EXPIRY.equals(parts[1]) ? null : LocalDateTime.parse(parts[1]);
-            return new CachedUrl(status, expiresAt, parts[2]);
+            return new CachedUrl(status, expiresAt, PROTECTED.equals(parts[2]), parts[3]);
         } catch (IllegalArgumentException | DateTimeParseException e) {
             return null;
         }

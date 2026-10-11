@@ -19,9 +19,11 @@ public interface UrlMapper {
      * @param baseUrl domain công khai (không có dấu {@code /} cuối) để dựng {@code shortUrl}
      */
     @Mapping(target = "shortUrl", expression = "java(baseUrl + \"/\" + url.getShortCode())")
+    @Mapping(target = "passwordProtected", expression = "java(url.getPasswordHash() != null)")
     UrlResponse toUrlResponse(Url url, @Context String baseUrl);
 
     /** Như {@link #toUrlResponse} nhưng kèm chủ sở hữu và người tạo/sửa, chỉ dành cho admin. */
     @Mapping(target = "shortUrl", expression = "java(baseUrl + \"/\" + url.getShortCode())")
+    @Mapping(target = "passwordProtected", expression = "java(url.getPasswordHash() != null)")
     AdminUrlResponse toAdminUrlResponse(Url url, @Context String baseUrl);
 }

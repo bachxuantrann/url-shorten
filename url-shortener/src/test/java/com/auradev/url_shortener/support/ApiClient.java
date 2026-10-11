@@ -46,8 +46,25 @@ public class ApiClient {
         }
     }
 
+    /** Phản hồi nhị phân (ví dụ ảnh PNG của mã QR). */
+    public record BinaryResp(int status, byte[] body, HttpHeaders headers) {
+        public String header(String name) {
+            return headers.firstValue(name).orElse(null);
+        }
+    }
+
     public Resp call(String method, String path, String token, String body) throws Exception {
         return call(method, path, token, body, Map.of());
+    }
+
+    /** GET trả về byte thô; dùng cho endpoint không trả JSON ở trường hợp thành công. */
+    public BinaryResp getBytes(String path, String token) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).GET();
+        if (token != null) {
+            builder.header("Authorization", "Bearer " + token);
+        }
+        HttpResponse<byte[]> response = HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+        return new BinaryResp(response.statusCode(), response.body(), response.headers());
     }
 
     /**

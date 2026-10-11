@@ -23,6 +23,7 @@ public class AdminUrlResponse {
     private String shortUrl;
     private String originalUrl;
     private UrlStatusEnum status;
+    private boolean passwordProtected;
     private String blockedReason;
     private UUID userId;
     private LocalDateTime expiresAt;

@@ -17,6 +17,9 @@ import java.time.Duration;
  *   rate-limit:
  *     anonymous-create: { limit: 10,  window: PT1H }   # theo IP, tạo link ẩn danh
  *     user-create:      { limit: 100, window: PT1H }   # theo user, tạo link khi đã đăng nhập
+ *     unlock-per-ip:          { limit: 30,  window: PT15M }  # theo IP, mọi link
+ *     unlock-per-link-and-ip: { limit: 10,  window: PT15M }  # theo (link, IP), thử mật khẩu link
+ *     unlock-per-link:        { limit: 100, window: PT1H }   # theo link, mọi IP
  * </pre>
  *
  * <p>{@code limit <= 0} nghĩa là tắt luật đó.
@@ -30,6 +33,18 @@ public class RateLimitProperties {
     private Rule anonymousCreate = new Rule(10, Duration.ofHours(1));
 
     private Rule userCreate = new Rule(100, Duration.ofHours(1));
+
+    /**
+     * Thử mở khoá link có mật khẩu: tổng theo IP trên mọi link. Chặn quét nhiều link và giữ số
+     * khoá Redis tạo ra bị giới hạn theo số IP.
+     */
+    private Rule unlockPerIp = new Rule(30, Duration.ofMinutes(15));
+
+    /** Thử mở khoá link có mật khẩu: theo cặp (link, IP), chặn đoán mật khẩu từ một nguồn. */
+    private Rule unlockPerLinkAndIp = new Rule(10, Duration.ofMinutes(15));
+
+    /** Thử mở khoá link có mật khẩu: tổng theo link, chặn đoán mật khẩu phân tán từ nhiều IP. */
+    private Rule unlockPerLink = new Rule(100, Duration.ofHours(1));
 
     /** Tối đa {@code limit} request trong mỗi cửa sổ {@code window} (cửa sổ cố định). */
     @Getter

@@ -3,6 +3,7 @@ package com.auradev.url_shortener.controller;
 import com.auradev.url_shortener.config.RateLimitProperties;
 import com.auradev.url_shortener.constant.AppConstant;
 import com.auradev.url_shortener.dto.request.CreateUrlRequest;
+import com.auradev.url_shortener.dto.request.SetLinkPasswordRequest;
 import com.auradev.url_shortener.dto.request.UpdateUrlRequest;
 import com.auradev.url_shortener.dto.response.ApiResponse;
 import com.auradev.url_shortener.dto.response.PageResponse;
@@ -11,6 +12,7 @@ import com.auradev.url_shortener.enums.UrlStatusEnum;
 import com.auradev.url_shortener.exception.AppException;
 import com.auradev.url_shortener.exception.ErrorCode;
 import com.auradev.url_shortener.service.UrlService;
+import com.auradev.url_shortener.utils.QrCodeGenerator;
 import com.auradev.url_shortener.utils.RateLimitService;
 import com.auradev.url_shortener.utils.SecurityUtils;
 import com.auradev.url_shortener.utils.TranslatorUtils;
@@ -20,10 +22,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.util.Set;
 import java.util.UUID;
 
@@ -38,6 +43,9 @@ import java.util.UUID;
  *   <li>PUT    {@code /{shortCode}}      — Cập nhật URL đích / hạn</li>
  *   <li>PUT    {@code /{shortCode}/disable} — Tắt link</li>
  *   <li>PUT    {@code /{shortCode}/enable}  — Bật lại link</li>
+ *   <li>PUT    {@code /{shortCode}/password} — Đặt hoặc đổi mật khẩu bảo vệ link</li>
+ *   <li>DELETE {@code /{shortCode}/password} — Gỡ mật khẩu</li>
+ *   <li>GET    {@code /{shortCode}/qr}   — Mã QR (PNG) của short URL, tham số {@code size} 128-1024</li>
  *   <li>DELETE {@code /{shortCode}}      — Xoá (mềm)</li>
  * </ul>
  */
@@ -143,6 +151,54 @@ public class UrlController {
         UrlResponse enabled = urlService.enable(userId, shortCode);
         String message = translator.toLocale("api.success.url_enabled");
         return ResponseEntity.ok(ApiResponse.success(message, enabled));
+    }
+
+    /**
+     * Đặt hoặc đổi mật khẩu. BCrypt tốn CPU nên dùng chung ngân sách {@code user-create} theo user để
+     * một tài khoản không thể dùng endpoint này làm bơm CPU.
+     */
+    @PutMapping("/{shortCode}/password")
+    public ResponseEntity<ApiResponse<UrlResponse>> setPassword(
+            @PathVariable String shortCode,
+            @Valid @RequestBody SetLinkPasswordRequest body,
+            HttpServletRequest request
+    ) {
+        UUID userId = SecurityUtils.getAuthenticatedUserId(request);
+        rateLimitService.check("user-password", userId.toString(), rateLimitProperties.getUserCreate());
+        UrlResponse updated = urlService.setPassword(userId, shortCode, body.getPassword());
+        String message = translator.toLocale("api.success.url_password_set");
+        return ResponseEntity.ok(ApiResponse.success(message, updated));
+    }
+
+    @DeleteMapping("/{shortCode}/password")
+    public ResponseEntity<ApiResponse<UrlResponse>> removePassword(
+            @PathVariable String shortCode,
+            HttpServletRequest request
+    ) {
+        UUID userId = SecurityUtils.getAuthenticatedUserId(request);
+        UrlResponse updated = urlService.removePassword(userId, shortCode);
+        String message = translator.toLocale("api.success.url_password_removed");
+        return ResponseEntity.ok(ApiResponse.success(message, updated));
+    }
+
+    /**
+     * Mã QR của short URL dưới dạng PNG. {@code size} ngoài khoảng cho phép được kẹp về
+     * [{@value QrCodeGenerator#MIN_SIZE}, {@value QrCodeGenerator#MAX_SIZE}]. Nội dung chỉ phụ thuộc mã
+     * của link nên cho phép trình duyệt cache riêng một giờ.
+     */
+    @GetMapping("/{shortCode}/qr")
+    public ResponseEntity<byte[]> qrCode(
+            @PathVariable String shortCode,
+            @RequestParam(defaultValue = "" + QrCodeGenerator.DEFAULT_SIZE) int size,
+            HttpServletRequest request
+    ) {
+        UUID userId = SecurityUtils.getAuthenticatedUserId(request);
+        int clamped = Math.min(Math.max(size, QrCodeGenerator.MIN_SIZE), QrCodeGenerator.MAX_SIZE);
+        byte[] png = urlService.qrCode(userId, shortCode, clamped);
+        return ResponseEntity.ok()
+                .contentType(MediaType.IMAGE_PNG)
+                .cacheControl(CacheControl.maxAge(Duration.ofHours(1)).cachePrivate())
+                .body(png);
     }
 
     @DeleteMapping("/{shortCode}")

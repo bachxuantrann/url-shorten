@@ -12,6 +12,7 @@ import com.auradev.url_shortener.exception.ErrorCode;
 import com.auradev.url_shortener.mapper.UrlMapper;
 import com.auradev.url_shortener.repository.UrlRepository;
 import com.auradev.url_shortener.service.UrlService;
+import com.auradev.url_shortener.utils.QrCodeGenerator;
 import com.auradev.url_shortener.utils.ShortCodeGenerator;
 import com.auradev.url_shortener.utils.ShortCodes;
 import com.auradev.url_shortener.utils.UrlCacheService;
@@ -19,10 +20,15 @@ import com.auradev.url_shortener.utils.UrlTargetPolicy;
 import com.auradev.url_shortener.utils.UrlUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.NestedExceptionUtils;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Locale;
@@ -37,13 +43,29 @@ import java.util.UUID;
  *   ACTIVE  → EXPIRED           (job định kỳ khi quá expiresAt, xem UrlExpirationJob)
  *   EXPIRED → ACTIVE            (update với hạn mới)
  *   *       → DELETED           (delete, trừ BLOCKED)
- *   BLOCKED                     (chủ link không được sửa/tắt/xoá)
+ *   BLOCKED                     (chủ link không được sửa/tắt/xoá/đổi mật khẩu)
  * </pre>
+ *
+ * <p><b>Tạo link không dùng {@code @Transactional} ở mức method</b>: việc ghi nằm trong một
+ * {@link TransactionTemplate} cho từng lần thử. Lý do: mã sinh tự động có thể trùng với một alias đã
+ * được đăng ký (alias 7 ký tự {@code [0-9a-zA-Z]} có thể bằng một mã sinh ra sau này), và một lệnh
+ * {@code INSERT} vi phạm ràng buộc UNIQUE làm Postgres huỷ cả transaction đang chạy. Vì vậy mỗi lần thử
+ * có transaction riêng; khi trùng mã thì transaction đó rollback và vòng lặp bên ngoài thử lại với một
+ * mã mới. Hash mật khẩu (BCrypt, vài trăm ms) cũng được tính ngoài transaction để không giữ kết nối DB.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class UrlServiceImpl implements UrlService {
+
+    /** Số lần thử tối đa khi mã sinh tự động trùng một mã đã có (cực hiếm, mỗi lần dùng mã mới). */
+    private static final int MAX_CODE_ATTEMPTS = 5;
+
+    /** Tên ràng buộc UNIQUE của {@code urls.short_code} (xem V3). */
+    private static final String SHORT_CODE_CONSTRAINT = "uq_urls_short_code";
+
+    /** BCrypt chỉ xử lý 72 byte đầu; mật khẩu dài hơn sẽ bị cắt âm thầm nên từ chối ngay. */
+    private static final int MAX_PASSWORD_BYTES = 72;
 
     private final UrlRepository       urlRepository;
     private final UrlMapper           urlMapper;
@@ -52,47 +74,102 @@ public class UrlServiceImpl implements UrlService {
     private final UrlCacheService     urlCacheService;
     private final Clock               clock;
     private final UrlTargetPolicy     urlTargetPolicy;
+    private final PasswordEncoder     passwordEncoder;
+    private final TransactionTemplate transactionTemplate;
+    private final QrCodeGenerator     qrCodeGenerator;
 
     // ===========================
     //  CREATE
     // ===========================
 
     @Override
-    @Transactional
     public UrlResponse create(UUID userId, CreateUrlRequest request) {
         assertWithinQuota(userId);
-        return createLink(userId, request);
+        return createLink(userId, request, request.getAlias(), request.getPassword());
     }
 
     @Override
-    @Transactional
     public UrlResponse createAnonymous(CreateUrlRequest request) {
-        return createLink(null, request);
+        // Link ẩn danh không có alias hay mật khẩu, kể cả khi caller lỡ truyền vào
+        return createLink(null, request, null, null);
     }
 
-    private UrlResponse createLink(UUID userId, CreateUrlRequest request) {
+    private UrlResponse createLink(UUID userId, CreateUrlRequest request, String alias, String password) {
         String originalUrl = validateTarget(request.getOriginalUrl());
+        String passwordHash = hashPassword(password);
+        if (alias != null) {
+            assertAliasAvailable(alias);
+        }
 
-        // Số tuần tự duy nhất từ Postgres → mã duy nhất, an toàn khi chạy nhiều instance.
-        // Bỏ qua (cực hiếm) mã trùng với từ khoá dành riêng như "swagger".
-        String shortCode;
-        do {
-            shortCode = shortCodeGenerator.generate(urlRepository.nextShortCodeSequence());
-        } while (ShortCodes.isReserved(shortCode));
+        for (int attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
+            try {
+                Url saved = transactionTemplate.execute(
+                        status -> insertLink(userId, originalUrl, request.getExpiresAt(), alias, passwordHash));
+                return toResponse(saved);
+            } catch (DataIntegrityViolationException e) {
+                if (!isShortCodeCollision(e)) {
+                    throw e;
+                }
+                if (alias != null) {
+                    // Ai đó vừa đăng ký cùng alias (race giữa kiểm tra trước và INSERT)
+                    throw new AppException(ErrorCode.URL_ALIAS_UNAVAILABLE, alias);
+                }
+                log.warn("Generated short code collided with an existing code, retrying (attempt {}/{})",
+                        attempt, MAX_CODE_ATTEMPTS);
+            }
+        }
+        throw new IllegalStateException("Could not allocate a unique short code after " + MAX_CODE_ATTEMPTS + " attempts");
+    }
+
+    /** Một lần ghi, trong một transaction riêng (xem Javadoc của class). */
+    private Url insertLink(UUID userId, String originalUrl, LocalDateTime expiresAt, String alias, String passwordHash) {
+        String shortCode = alias != null ? alias : nextGeneratedCode();
 
         Url saved = urlRepository.save(Url.builder()
                 .userId(userId)
                 .shortCode(shortCode)
                 .originalUrl(originalUrl)
                 .status(UrlStatusEnum.ACTIVE)
-                .expiresAt(request.getExpiresAt())
+                .expiresAt(expiresAt)
+                .passwordHash(passwordHash)
                 .build());
 
         // Xoá negative cache (nếu có ai đã truy cập mã này trước khi nó được tạo)
         urlCacheService.evictAfterCommit(saved.getShortCode());
 
-        log.info("URL created: shortCode={}, userId={}", saved.getShortCode(), userId);
-        return toResponse(saved);
+        log.info("URL created: shortCode={}, userId={}, alias={}, passwordProtected={}",
+                saved.getShortCode(), userId, alias != null, passwordHash != null);
+        return saved;
+    }
+
+    /**
+     * Số tuần tự duy nhất từ Postgres → mã duy nhất, an toàn khi chạy nhiều instance.
+     * Bỏ qua (cực hiếm) mã trùng với từ khoá dành riêng như "swagger".
+     */
+    private String nextGeneratedCode() {
+        String shortCode;
+        do {
+            shortCode = shortCodeGenerator.generate(urlRepository.nextShortCodeSequence());
+        } while (ShortCodes.isReserved(shortCode));
+        return shortCode;
+    }
+
+    /**
+     * Alias phải đúng định dạng, không thuộc danh sách dành riêng và chưa được dùng (kể cả bởi link đã xoá,
+     * vì mã không bao giờ được cấp lại). Lý do không được phân biệt trong thông báo.
+     */
+    private void assertAliasAvailable(String alias) {
+        if (!ShortCodes.isValidFormat(alias)) {
+            throw new AppException(ErrorCode.VALIDATION_FAILED);
+        }
+        if (ShortCodes.isReserved(alias) || urlRepository.existsByShortCode(alias)) {
+            throw new AppException(ErrorCode.URL_ALIAS_UNAVAILABLE, alias);
+        }
+    }
+
+    private boolean isShortCodeCollision(DataIntegrityViolationException e) {
+        String message = NestedExceptionUtils.getMostSpecificCause(e).getMessage();
+        return message != null && message.contains(SHORT_CODE_CONSTRAINT);
     }
 
     // ===========================
@@ -178,6 +255,51 @@ public class UrlServiceImpl implements UrlService {
     }
 
     // ===========================
+    //  PASSWORD
+    // ===========================
+
+    @Override
+    public UrlResponse setPassword(UUID userId, String shortCode, String password) {
+        // BCrypt tốn CPU: tính ngoài transaction, trước khi giữ kết nối DB
+        String passwordHash = hashPassword(password);
+
+        return transactionTemplate.execute(status -> {
+            Url url = findOwned(userId, shortCode);
+            assertNotBlocked(url);
+
+            url.setPasswordHash(passwordHash);
+            urlCacheService.evictAfterCommit(shortCode);
+
+            log.info("URL password set: shortCode={}, userId={}", shortCode, userId);
+            return toResponse(urlRepository.save(url));
+        });
+    }
+
+    @Override
+    @Transactional
+    public UrlResponse removePassword(UUID userId, String shortCode) {
+        Url url = findOwned(userId, shortCode);
+        assertNotBlocked(url);
+
+        url.setPasswordHash(null);
+        urlCacheService.evictAfterCommit(shortCode);
+
+        log.info("URL password removed: shortCode={}, userId={}", shortCode, userId);
+        return toResponse(urlRepository.save(url));
+    }
+
+    // ===========================
+    //  QR CODE
+    // ===========================
+
+    @Override
+    @Transactional(readOnly = true)
+    public byte[] qrCode(UUID userId, String shortCode, int size) {
+        Url url = findOwned(userId, shortCode);
+        return qrCodeGenerator.png(baseUrl() + "/" + url.getShortCode(), size);
+    }
+
+    // ===========================
     //  DELETE (soft)
     // ===========================
 
@@ -204,6 +326,21 @@ public class UrlServiceImpl implements UrlService {
         String url = UrlUtils.validate(rawUrl);
         urlTargetPolicy.check(url);
         return url;
+    }
+
+    /**
+     * BCrypt hash của mật khẩu link, hoặc null nếu không đặt mật khẩu.
+     *
+     * @throws AppException {@code INVALID_LINK_PASSWORD} nếu quá 72 byte khi mã hoá UTF-8
+     */
+    private String hashPassword(String password) {
+        if (password == null) {
+            return null;
+        }
+        if (password.getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES) {
+            throw new AppException(ErrorCode.INVALID_LINK_PASSWORD);
+        }
+        return passwordEncoder.encode(password);
     }
 
     /**

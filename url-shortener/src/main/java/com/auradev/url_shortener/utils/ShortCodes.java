@@ -42,6 +42,11 @@ public final class ShortCodes {
                 && CODE_CHARS.matcher(code).matches();
     }
 
+    /** Đúng định dạng và không phải mã dành riêng: chỉ những mã này có thể tồn tại như một link. */
+    public static boolean isResolvable(String code) {
+        return isValidFormat(code) && !isReserved(code);
+    }
+
     /**
      * Đường dẫn có dạng {@code /{segment}} (một đoạn duy nhất, chỉ gồm ký tự hợp lệ của mã)
      * và không phải mã dành riêng. Dùng để mở công khai route redirect trong Spring Security:

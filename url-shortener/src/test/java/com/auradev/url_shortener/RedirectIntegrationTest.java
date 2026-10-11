@@ -191,7 +191,7 @@ class RedirectIntegrationTest {
 
         api.call("GET", "/" + code, null, null);
 
-        assertThat(redisTemplate.opsForValue().get(key)).isEqualTo("ACTIVE|-|https://example.com/cache?a=1%7C2");
+        assertThat(redisTemplate.opsForValue().get(key)).isEqualTo("ACTIVE|-|-|https://example.com/cache?a=1%7C2");
         assertThat(redisTemplate.getExpire(key)).isBetween(1L, 600L);
     }
 

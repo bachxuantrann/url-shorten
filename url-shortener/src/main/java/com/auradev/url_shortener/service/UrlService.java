@@ -29,6 +29,22 @@ public interface UrlService {
     UrlResponse get(UUID userId, String shortCode);
 
     /**
+     * Đặt hoặc đổi mật khẩu bảo vệ link. Người truy cập phải mở khoá bằng mật khẩu mới nhận được URL đích
+     * (xem {@code RedirectService.unlockTarget}).
+     */
+    UrlResponse setPassword(UUID userId, String shortCode, String password);
+
+    /** Gỡ mật khẩu: link redirect thẳng như bình thường. Idempotent. */
+    UrlResponse removePassword(UUID userId, String shortCode);
+
+    /**
+     * Sinh mã QR (PNG) của short URL. Sinh tại chỗ, không lưu.
+     *
+     * @param size cạnh ảnh (pixel), trong khoảng cho phép của {@code QrCodeGenerator}
+     */
+    byte[] qrCode(UUID userId, String shortCode, int size);
+
+    /**
      * Danh sách link của user (không gồm link đã xoá).
      *
      * @param keyword tìm theo URL đích hoặc short code, không phân biệt hoa thường, khớp một phần

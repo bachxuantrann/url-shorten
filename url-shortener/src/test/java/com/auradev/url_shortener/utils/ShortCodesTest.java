@@ -30,6 +30,16 @@ class ShortCodesTest {
     }
 
     @Test
+    void resolvableMeansValidFormatAndNotReserved() {
+        assertThat(ShortCodes.isResolvable("aB3xK9z")).isTrue();
+        assertThat(ShortCodes.isResolvable("my-github")).isTrue();
+        assertThat(ShortCodes.isResolvable("admin")).isFalse();   // dành riêng
+        assertThat(ShortCodes.isResolvable("ab")).isFalse();      // quá ngắn
+        assertThat(ShortCodes.isResolvable("has.dot")).isFalse(); // ký tự không hợp lệ
+        assertThat(ShortCodes.isResolvable(null)).isFalse();
+    }
+
+    @Test
     void lengthLimitsAreEnforced() {
         assertThat(ShortCodes.isValidFormat("a".repeat(ShortCodes.MAX_LENGTH))).isTrue();
         assertThat(ShortCodes.isValidFormat("a".repeat(ShortCodes.MAX_LENGTH + 1))).isFalse();

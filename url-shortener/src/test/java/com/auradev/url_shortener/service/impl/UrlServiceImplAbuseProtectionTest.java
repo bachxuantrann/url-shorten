@@ -10,6 +10,7 @@ import com.auradev.url_shortener.exception.AppException;
 import com.auradev.url_shortener.exception.ErrorCode;
 import com.auradev.url_shortener.mapper.UrlMapper;
 import com.auradev.url_shortener.repository.UrlRepository;
+import com.auradev.url_shortener.utils.QrCodeGenerator;
 import com.auradev.url_shortener.utils.ShortCodeGenerator;
 import com.auradev.url_shortener.utils.UrlCacheService;
 import com.auradev.url_shortener.utils.UrlTargetPolicy;
@@ -19,6 +20,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.util.Optional;
@@ -31,6 +35,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -54,6 +59,10 @@ class UrlServiceImplAbuseProtectionTest {
     private UrlCacheService urlCacheService;
     @Mock
     private UrlTargetPolicy urlTargetPolicy;
+    @Mock
+    private PasswordEncoder passwordEncoder;
+    @Mock
+    private QrCodeGenerator qrCodeGenerator;
 
     private ShortenerProperties properties;
     private UrlServiceImpl service;
@@ -63,7 +72,8 @@ class UrlServiceImplAbuseProtectionTest {
         properties = new ShortenerProperties();
         properties.setMaxLinksPerUser(3);
         service = new UrlServiceImpl(urlRepository, urlMapper, shortCodeGenerator, properties,
-                urlCacheService, Clock.systemDefaultZone(), urlTargetPolicy);
+                urlCacheService, Clock.systemDefaultZone(), urlTargetPolicy, passwordEncoder,
+                new TransactionTemplate(mock(PlatformTransactionManager.class)), qrCodeGenerator);
     }
 
     // ===========================

@@ -38,7 +38,7 @@ public class Url extends BaseEntity {
     private UUID userId;
 
     /** Mã rút gọn công khai — unique, không đổi sau khi tạo */
-    @Column(name = "short_code", nullable = false, unique = true, updatable = false, length = 16)
+    @Column(name = "short_code", nullable = false, unique = true, updatable = false, length = 32)
     private String shortCode;
 
     @Column(name = "original_url", nullable = false, columnDefinition = "text")
@@ -64,4 +64,11 @@ public class Url extends BaseEntity {
     /** Lý do bị chặn — chỉ có giá trị khi {@code status = BLOCKED} */
     @Column(name = "blocked_reason", length = 255)
     private String blockedReason;
+
+    /**
+     * BCrypt hash của mật khẩu bảo vệ link; null nếu link không có mật khẩu. Không bao giờ được
+     * đưa vào response, cache hay log.
+     */
+    @Column(name = "password_hash", length = 100)
+    private String passwordHash;
 }

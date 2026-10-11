@@ -82,6 +82,9 @@ public interface UrlRepository extends JpaRepository<Url, Long> {
             @Param("updatedBy") String updatedBy
     );
 
+    /** Mã (sinh tự động hoặc alias) đã được dùng chưa, kể cả link đã xoá (mã không bao giờ được cấp lại). */
+    boolean existsByShortCode(String shortCode);
+
     /** Tìm link theo mã công khai, mọi trạng thái (dùng cho redirect) */
     Optional<Url> findByShortCode(String shortCode);
 

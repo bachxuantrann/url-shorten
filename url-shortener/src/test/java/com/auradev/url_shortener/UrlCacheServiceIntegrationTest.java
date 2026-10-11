@@ -44,6 +44,32 @@ class UrlCacheServiceIntegrationTest {
     }
 
     @Test
+    void aPasswordProtectedLinkIsCachedWithoutItsTargetOrItsHash() {
+        String code = code();
+        Url protectedLink = url(UrlStatusEnum.ACTIVE, null, "https://secret-destination.example/private");
+        protectedLink.setPasswordHash("$2a$12$some-bcrypt-hash");
+
+        cacheService.put(code, protectedLink);
+
+        String raw = redisTemplate.opsForValue().get("URL:" + code);
+        assertThat(raw).isEqualTo("ACTIVE|-|P|");
+        assertThat(raw).doesNotContain("secret-destination").doesNotContain("bcrypt");
+        CachedUrl cached = cacheService.get(code).orElseThrow();
+        assertThat(cached.passwordProtected()).isTrue();
+        assertThat(cached.originalUrl()).isEmpty();
+    }
+
+    @Test
+    void entriesInTheOldThreeFieldFormatAreTreatedAsMissAndReloaded() {
+        String code = code();
+        redisTemplate.opsForValue().set("URL:" + code, "ACTIVE|-|https://example.com/old-format");
+
+        assertThat(cacheService.get(code)).isEmpty();
+
+        redisTemplate.delete("URL:" + code);
+    }
+
+    @Test
     void linkWithoutExpiryUsesTheDefaultTtl() {
         String code = code();
 
@@ -82,9 +108,9 @@ class UrlCacheServiceIntegrationTest {
         cacheService.evict(code);
         assertThat(cacheService.get(code)).isEmpty();
 
-        redisTemplate.opsForValue().set("URL:" + code, "NOT_A_STATUS|-|https://example.com");
+        redisTemplate.opsForValue().set("URL:" + code, "NOT_A_STATUS|-|-|https://example.com");
         assertThat(cacheService.get(code)).isEmpty();
-        redisTemplate.opsForValue().set("URL:" + code, "ACTIVE|not-a-date|https://example.com");
+        redisTemplate.opsForValue().set("URL:" + code, "ACTIVE|not-a-date|-|https://example.com");
         assertThat(cacheService.get(code)).isEmpty();
         redisTemplate.delete("URL:" + code);
     }

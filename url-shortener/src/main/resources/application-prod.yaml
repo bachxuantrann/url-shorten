@@ -88,6 +88,9 @@ app:
   rate-limit:
     anonymous-create: { limit: 10, window: PT1H }    # theo IP: tối đa 10 link ẩn danh mỗi giờ
     user-create: { limit: 100, window: PT1H }        # theo user: tối đa 100 link mỗi giờ
+    unlock-per-ip: { limit: 30, window: PT15M }      # thử mở khoá link có mật khẩu: theo IP, mọi link
+    unlock-per-link-and-ip: { limit: 10, window: PT15M }   # theo (link, IP): chặn đoán mật khẩu từ một nguồn
+    unlock-per-link: { limit: 100, window: PT1H }    # theo link, mọi IP: chặn đoán mật khẩu phân tán
 
 # ===== Server =====
 # Tin X-Forwarded-For CHỈ khi kết nối đến từ proxy tin cậy (dải IP riêng/loopback mặc định của Tomcat)

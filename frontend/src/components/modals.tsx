@@ -5,7 +5,7 @@ import { createUrl, deleteUrl, removeLinkPassword, setLinkPassword, updateUrl } 
 import { getQrPng } from '../api/stats';
 import { useSubmit } from '../hooks/useSubmit';
 import { useI18n } from '../i18n/I18nProvider';
-import { fromInputValue, toInputValue } from '../utils/datetime';
+import { useServerTime } from '../hooks/useServerTime';
 import { Field } from './Field';
 import { Button, buttonClass } from './ui/Button';
 import { Modal } from './ui/Modal';
@@ -49,6 +49,7 @@ function CreateForm({ onClose, onCreated }: Omit<CreateProps, 'open'>) {
   const [password, setPassword] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
   const [advanced, setAdvanced] = useState(false);
+  const time = useServerTime();
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -58,7 +59,7 @@ function CreateForm({ onClose, onCreated }: Omit<CreateProps, 'open'>) {
         originalUrl: url.trim(),
         alias: alias.trim() || undefined,
         password: password || undefined,
-        expiresAt: fromInputValue(expiresAt),
+        expiresAt: time.fromInput(expiresAt),
       });
     });
     if (ok && created) {
@@ -112,7 +113,7 @@ function CreateForm({ onClose, onCreated }: Omit<CreateProps, 'open'>) {
             label={t('form.expires')}
             name="expiresAt"
             type="datetime-local"
-            hint={t('form.expires.hint')}
+            hint={`${t('form.expires.hint')} ${t('time.yourZone', { zone: time.userZoneLabel })}`}
             value={expiresAt}
             onChange={(e) => setExpiresAt(e.target.value)}
             error={error?.fields.expiresAt}
@@ -151,18 +152,26 @@ export function EditLinkModal({ link, onClose, onChanged }: LinkModalProps) {
   );
 }
 
-function EditForm({ link, onClose, onChanged }: { link: UrlResponse } & Omit<LinkModalProps, 'link'>) {
+/** Đợi biết múi giờ máy chủ rồi mới dựng form: giá trị ban đầu của ô hạn dùng phụ thuộc vào nó. */
+function EditForm(props: { link: UrlResponse } & Omit<LinkModalProps, 'link'>) {
+  const time = useServerTime();
+  if (!time.ready) return <div className="skeleton" style={{ height: 160 }} />;
+  return <EditFormReady {...props} />;
+}
+
+function EditFormReady({ link, onClose, onChanged }: { link: UrlResponse } & Omit<LinkModalProps, 'link'>) {
   const { t } = useI18n();
+  const time = useServerTime();
   const toast = useToast();
   const { busy, error, run } = useSubmit();
   const [url, setUrl] = useState(link.originalUrl);
-  const [expiresAt, setExpiresAt] = useState(toInputValue(link.expiresAt));
+  const [expiresAt, setExpiresAt] = useState(time.toInput(link.expiresAt));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     let updated: UrlResponse | undefined;
     const ok = await run(async () => {
-      updated = await updateUrl(link.shortCode, { originalUrl: url.trim(), expiresAt: fromInputValue(expiresAt) });
+      updated = await updateUrl(link.shortCode, { originalUrl: url.trim(), expiresAt: time.fromInput(expiresAt) });
     });
     if (ok && updated) {
       toast.success(t('toast.updated'));
@@ -187,7 +196,7 @@ function EditForm({ link, onClose, onChanged }: { link: UrlResponse } & Omit<Lin
         label={t('form.expires')}
         name="expiresAt"
         type="datetime-local"
-        hint={t('form.expires.hint')}
+        hint={`${t('form.expires.hint')} ${t('time.yourZone', { zone: time.userZoneLabel })}`}
         value={expiresAt}
         onChange={(e) => setExpiresAt(e.target.value)}
         error={error?.fields.expiresAt}

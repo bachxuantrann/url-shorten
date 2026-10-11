@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tokenStore } from '../api/client';
@@ -183,7 +183,7 @@ describe('route cần đăng nhập', () => {
     expect(await screen.findByRole('heading', { name: 'Chào mừng trở lại' })).toBeInTheDocument();
   });
 
-  it('đăng xuất từ menu tài khoản xoá token và gọi API logout', async () => {
+  it('đăng xuất từ menu tài khoản KHÔNG đăng xuất ngay mà hỏi xác nhận trước', async () => {
     serve({
       'GET /api/v1/users/me': me,
       'GET /api/v1/urls': emptyList,
@@ -195,9 +195,92 @@ describe('route cần đăng nhập', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Menu tài khoản' }));
     await userEvent.click(screen.getByRole('menuitem', { name: 'Đăng xuất' }));
 
+    const dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getByRole('heading', { name: 'Đăng xuất khỏi Shortly?' })).toBeInTheDocument();
+    expect(dialog.getByText(/đăng nhập lại để quản lý link/)).toBeInTheDocument();
+    // chưa làm gì cả cho tới khi xác nhận
+    expect(callsTo('POST', '/api/v1/auth/logout')).toHaveLength(0);
+    expect(tokenStore.access()).toBe('at');
+    expect(screen.getByRole('heading', { name: 'Link của tôi', level: 1 })).toBeInTheDocument();
+  });
+
+  it('xác nhận đăng xuất: gọi API, xoá token và về trang chủ', async () => {
+    serve({
+      'GET /api/v1/users/me': me,
+      'GET /api/v1/urls': emptyList,
+      'POST /api/v1/auth/logout': () => ok(null),
+    });
+    renderApp('/dashboard', { authed: true });
+    await screen.findByRole('heading', { name: 'Link của tôi', level: 1 });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Menu tài khoản' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Đăng xuất' }));
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Đăng xuất' }));
+
     expect(await screen.findByRole('heading', { name: /Link ngắn gọn/ })).toBeInTheDocument();
     expect(tokenStore.access()).toBeNull();
     expect(callsTo('POST', '/api/v1/auth/logout')).toHaveLength(1);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('huỷ trong hộp thoại xác nhận: vẫn đăng nhập, không gọi API', async () => {
+    serve({ 'GET /api/v1/users/me': me, 'GET /api/v1/urls': emptyList });
+    renderApp('/dashboard', { authed: true });
+    await screen.findByRole('heading', { name: 'Link của tôi', level: 1 });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Menu tài khoản' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Đăng xuất' }));
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Huỷ' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(tokenStore.access()).toBe('at');
+    expect(callsTo('POST', '/api/v1/auth/logout')).toHaveLength(0);
+    expect(screen.getByRole('heading', { name: 'Link của tôi', level: 1 })).toBeInTheDocument();
+  });
+
+  it('API đăng xuất lỗi (token đã hết hạn) vẫn xoá phiên phía client sau khi xác nhận', async () => {
+    serve({
+      'GET /api/v1/users/me': me,
+      'GET /api/v1/urls': emptyList,
+      'POST /api/v1/auth/logout': () => fail(401, 'ERR_201', 'Token không hợp lệ'),
+    });
+    renderApp('/dashboard', { authed: true });
+    await screen.findByRole('heading', { name: 'Link của tôi', level: 1 });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Menu tài khoản' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Đăng xuất' }));
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Đăng xuất' }));
+
+    expect(await screen.findByRole('heading', { name: /Link ngắn gọn/ })).toBeInTheDocument();
+    expect(tokenStore.access()).toBeNull();
+  });
+
+  it('nút đăng xuất ở thanh trên của trang công khai cũng hỏi xác nhận', async () => {
+    serve({ 'GET /api/v1/users/me': me, 'POST /api/v1/auth/logout': () => ok(null) });
+    renderApp('/', { authed: true });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Đăng xuất' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(callsTo('POST', '/api/v1/auth/logout')).toHaveLength(0);
+    expect(tokenStore.access()).toBe('at');
+
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Đăng xuất' }));
+
+    await waitFor(() => expect(tokenStore.access()).toBeNull());
+    expect(callsTo('POST', '/api/v1/auth/logout')).toHaveLength(1);
+    expect(await screen.findByRole('link', { name: 'Đăng ký miễn phí' })).toBeInTheDocument();
+  });
+
+  it('hộp thoại xác nhận bằng tiếng Anh khi đổi ngôn ngữ', async () => {
+    resetServer('en');
+    serve({ 'GET /api/v1/users/me': me, 'GET /api/v1/urls': emptyList });
+    renderApp('/dashboard', { authed: true });
+    await screen.findByRole('heading', { name: 'Links', level: 1 });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Account menu' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Log out' }));
+
+    expect(within(screen.getByRole('dialog')).getByRole('heading', { name: 'Log out of Shortly?' })).toBeInTheDocument();
   });
 
   it('menu tài khoản hiện tên, email và chữ cái đầu', async () => {

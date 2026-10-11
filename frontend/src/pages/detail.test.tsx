@@ -4,7 +4,7 @@ import { cloneElement, type ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UrlStats } from '../api/types';
 import { callsTo, fail, link, me, ok, pageOf, renderApp, resetServer, serve } from '../test/helpers';
-import { lastDays } from '../utils/datetime';
+import { lastDays } from '../utils/timezone';
 
 // jsdom không có layout nên ResponsiveContainer đo ra 0x0 và biểu đồ không vẽ: cho kích thước cố định
 vi.mock('recharts', async (importOriginal) => {
@@ -62,7 +62,8 @@ describe('chi tiết link', () => {
     expect(screen.getAllByText('https://example.com/abc1234').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Đang hoạt động').length).toBeGreaterThan(0);
     expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent('Link của tôi');
-    expect(document.title).toBe('sho.rt/abc1234 · Shortly');
+    // Tiêu đề cập nhật trong một effect sau khi render: đợi thay vì kiểm ngay
+    await waitFor(() => expect(document.title).toBe('sho.rt/abc1234 · Shortly'));
   });
 
   it('mặc định xem 30 ngày gần nhất và hiện bốn chỉ số tổng', async () => {

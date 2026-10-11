@@ -5,6 +5,8 @@ import { App } from '../App';
 import { tokenStore } from '../api/client';
 import type { UrlResponse } from '../api/types';
 import { AuthProvider } from '../auth/AuthProvider';
+import { resetServerZoneCache } from '../hooks/useServerTime';
+import { browserZone } from '../utils/timezone';
 import { ToastProvider } from '../components/ui/Toast';
 import { I18nProvider } from '../i18n/I18nProvider';
 import { ThemeProvider } from '../theme/ThemeProvider';
@@ -62,13 +64,16 @@ export let calls: Call[] = [];
 /** Chuẩn bị mỗi test: xoá lịch sử gọi, cài fetch giả, đặt ngôn ngữ tiếng Việt cho đoán chữ ổn định. */
 export function resetServer(language: 'vi' | 'en' = 'vi') {
   localStorage.setItem('lang', language);
+  resetServerZoneCache();
   calls = [];
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock);
 }
 
 /** Máy chủ giả rẽ nhánh theo "METHOD /path"; mọi request được ghi lại để assert. Request không khai báo làm test thất bại rõ ràng. */
-export function serve(routes: Record<string, (call: Call) => Response>) {
+export function serve(extraRoutes: Record<string, (call: Call) => Response>) {
+  // Múi giờ máy chủ mặc định = múi giờ của máy chạy test: không quy đổi, nên kết quả không phụ thuộc máy; test về múi giờ ghi đè route này
+  const routes: Record<string, (call: Call) => Response> = { 'GET /api/v1/public/config': () => ok({ timezone: browserZone() }), ...extraRoutes };
   fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
     const u = new URL(url, 'http://x');
     const call: Call = {

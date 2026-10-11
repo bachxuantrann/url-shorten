@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { callsTo, fail, me, ok, pageOf, renderApp, resetServer, serve, USER } from '../test/helpers';
@@ -19,7 +19,8 @@ describe('cài đặt: hồ sơ', () => {
     expect(screen.getByLabelText('Email')).toHaveValue('alice@example.com');
     expect(screen.getByLabelText('Tên đăng nhập')).toHaveValue('alice');
     expect(screen.getByLabelText('Tên đăng nhập')).toHaveAttribute('readonly');
-    expect(document.title).toBe('Cài đặt · Shortly');
+    // Tiêu đề cập nhật trong một effect sau khi render: đợi thay vì kiểm ngay
+    await waitFor(() => expect(document.title).toBe('Cài đặt · Shortly'));
   });
 
   it('lưu hồ sơ gửi PUT, báo thành công và cập nhật tên trong menu tài khoản', async () => {
@@ -45,11 +46,61 @@ describe('cài đặt: hồ sơ', () => {
   it('email đã tồn tại hiện lỗi dưới đúng ô', async () => {
     serveSettings({ 'PUT /api/v1/users/me': () => fail(409, 'ERR_102', 'Email đã được dùng', { email: 'Email đã được dùng' }) });
     renderApp('/settings', { authed: true });
-    await screen.findByLabelText('Họ và tên');
+    const email = await screen.findByLabelText('Email');
 
+    await userEvent.type(email, 'x');
     await userEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
 
     expect(await screen.findByLabelText('Email')).toHaveAttribute('aria-invalid', 'true');
+    // lỗi server không khoá nút: người dùng sửa lại rồi lưu tiếp được
+    expect(screen.getByRole('button', { name: 'Lưu thay đổi' })).toBeEnabled();
+  });
+
+  it('nút Lưu bị khoá khi chưa sửa gì', async () => {
+    serveSettings();
+    renderApp('/settings', { authed: true });
+
+    await screen.findByLabelText('Họ và tên');
+
+    expect(screen.getByRole('button', { name: 'Lưu thay đổi' })).toBeDisabled();
+  });
+
+  it('bật khi có thay đổi ở bất kỳ ô nào và khoá lại khi người dùng sửa về giá trị cũ', async () => {
+    serveSettings();
+    renderApp('/settings', { authed: true });
+    const name = await screen.findByLabelText('Họ và tên');
+    const save = screen.getByRole('button', { name: 'Lưu thay đổi' });
+
+    await userEvent.type(name, 'X');
+    expect(save).toBeEnabled();
+    await userEvent.type(name, '{Backspace}');
+    expect(save).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText('Email'), 'm');
+    expect(save).toBeEnabled();
+  });
+
+  it('chỉ thêm khoảng trắng đầu/cuối không tính là thay đổi', async () => {
+    serveSettings();
+    renderApp('/settings', { authed: true });
+    const name = await screen.findByLabelText('Họ và tên');
+
+    await userEvent.type(name, '   ');
+
+    expect(screen.getByRole('button', { name: 'Lưu thay đổi' })).toBeDisabled();
+  });
+
+  it('lưu thành công thì nút khoá lại (hồ sơ mới trở thành giá trị hiện tại)', async () => {
+    serveSettings({ 'PUT /api/v1/users/me': () => ok({ ...USER, fullName: 'Alice Tran' }) });
+    renderApp('/settings', { authed: true });
+    const name = await screen.findByLabelText('Họ và tên');
+    await userEvent.clear(name);
+    await userEvent.type(name, 'Alice Tran');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
+
+    expect(await screen.findByText('Đã cập nhật hồ sơ')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Lưu thay đổi' })).toBeDisabled();
   });
 
   it('không lưu được khi tên bị xoá trống', async () => {

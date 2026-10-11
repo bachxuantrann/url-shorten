@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import {
   AlertCircle, ArrowRight, BarChart3, CalendarClock, ChevronDown, ExternalLink, Link2, Lock, QrCode, ShieldCheck, Sparkles, Tag,
 } from 'lucide-react';
@@ -13,7 +13,8 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useI18n } from '../i18n/I18nProvider';
 import type { MessageKey } from '../i18n/messages';
-import { displayUrl, fromInputValue } from '../utils/datetime';
+import { useServerTime } from '../hooks/useServerTime';
+import { displayUrl } from '../utils/datetime';
 
 const FEATURES = [
   { icon: BarChart3, key: 'analytics' },
@@ -29,6 +30,13 @@ export function HomePage() {
   const { t } = useI18n();
   const { user } = useAuth();
   useDocumentTitle(null);
+  const time = useServerTime();
+  const { hash } = useLocation();
+
+  // Mở thẳng /#faq: trình duyệt xử lý hash trước khi React dựng xong nội dung nên không tự cuộn tới; cuộn thủ công sau khi dựng
+  useEffect(() => {
+    if (hash) document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView();
+  }, [hash]);
 
   const [originalUrl, setOriginalUrl] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
@@ -44,7 +52,7 @@ export function HomePage() {
     try {
       const created = await request<UrlResponse>('/api/v1/public/urls', {
         method: 'POST',
-        body: { originalUrl: originalUrl.trim(), expiresAt: fromInputValue(expiresAt) },
+        body: { originalUrl: originalUrl.trim(), expiresAt: time.fromInput(expiresAt) },
       });
       setResult(created);
     } catch (err) {
@@ -147,7 +155,7 @@ export function HomePage() {
                         label={t('home.expires')}
                         name="expiresAt"
                         type="datetime-local"
-                        hint={t('home.expires.hint')}
+                        hint={`${t('home.expires.hint')} ${t('time.yourZone', { zone: time.userZoneLabel })}`}
                         value={expiresAt}
                         onChange={(e) => setExpiresAt(e.target.value)}
                         error={error?.fields.expiresAt}

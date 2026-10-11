@@ -9,11 +9,13 @@ import { LinkMenu, StatusBadge, useLinkModals } from '../components/LinkActions'
 import { Button } from '../components/ui/Button';
 import { CopyButton } from '../components/ui/CopyButton';
 import { EmptyState } from '../components/ui/EmptyState';
+import { Select } from '../components/ui/Select';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useI18n } from '../i18n/I18nProvider';
 import type { MessageKey } from '../i18n/messages';
-import { displayUrl, formatDate, formatDateTime } from '../utils/datetime';
+import { useServerTime } from '../hooks/useServerTime';
+import { displayUrl } from '../utils/datetime';
 import { useDebounced } from '../utils/useDebounced';
 
 const PAGE_SIZE = 10;
@@ -26,6 +28,8 @@ export function LinksPage() {
   useDocumentTitle(t('links.title'));
   const { openCreate, createdVersion } = useCreateLink();
   const compact = useMediaQuery('(max-width: 1100px)');
+  // Giờ trong danh sách phải được quy đổi theo múi giờ máy chủ: đợi biết múi giờ để không hiện giờ chưa quy đổi (sai) thoáng qua
+  const { ready: zoneReady } = useServerTime();
 
   const [keyword, setKeyword] = useState('');
   const [status, setStatus] = useState<UrlStatus | ''>('');
@@ -149,22 +153,15 @@ export function LinksPage() {
             ))}
           </div>
           <span className="spacer" />
-          <select
-            className="select"
-            style={{ width: 'auto' }}
-            aria-label={t('links.sort')}
+          <Select
+            prefix={`${t('links.sort')}:`}
             value={sortBy}
-            onChange={(e) => {
-              setSortBy(e.target.value as SortBy);
+            options={SORTS.map((value) => ({ value, label: t(`links.sort.${value}` as MessageKey) }))}
+            onChange={(value) => {
+              setSortBy(value as SortBy);
               setPage(0);
             }}
-          >
-            {SORTS.map((s) => (
-              <option key={s} value={s}>
-                {t('links.sort')}: {t(`links.sort.${s}` as MessageKey)}
-              </option>
-            ))}
-          </select>
+          />
         </div>
 
         {error && (
@@ -179,7 +176,7 @@ export function LinksPage() {
           </div>
         )}
 
-        {loading && !data ? (
+        {(loading && !data) || !zoneReady ? (
           <Skeleton />
         ) : data && content.length === 0 ? (
           filtered ? (
@@ -312,6 +309,7 @@ function LinkIdentity({ link }: { link: UrlResponse }) {
 
 function LinkRow({ link, open, onChanged }: RowProps) {
   const { t, language } = useI18n();
+  const time = useServerTime();
   return (
     <tr>
       <td>
@@ -334,10 +332,10 @@ function LinkRow({ link, open, onChanged }: RowProps) {
           )}
         </div>
         <div className="muted small" style={{ marginTop: 4 }}>
-          {link.expiresAt ? t('link.expires', { date: formatDateTime(link.expiresAt, language) }) : t('link.neverExpires')}
+          {link.expiresAt ? t('link.expires', { date: time.format(link.expiresAt) }) : t('link.neverExpires')}
         </div>
       </td>
-      <td className="muted small">{formatDate(link.createdAt, language)}</td>
+      <td className="muted small">{time.formatDay(link.createdAt)}</td>
       <td className="col-actions">
         <LinkMenu link={link} open={open} onChanged={onChanged} />
       </td>
@@ -347,6 +345,7 @@ function LinkRow({ link, open, onChanged }: RowProps) {
 
 function LinkCard({ link, open, onChanged }: RowProps) {
   const { t, language } = useI18n();
+  const time = useServerTime();
   return (
     <div className="link-card">
       <LinkIdentity link={link} />
@@ -359,7 +358,7 @@ function LinkCard({ link, open, onChanged }: RowProps) {
           </span>
         )}
         <span>{t('link.clicks', { count: link.clickCount.toLocaleString(language) })}</span>
-        <span>{link.expiresAt ? t('link.expires', { date: formatDateTime(link.expiresAt, language) }) : t('link.neverExpires')}</span>
+        <span>{link.expiresAt ? t('link.expires', { date: time.format(link.expiresAt) }) : t('link.neverExpires')}</span>
       </div>
       {link.status === 'BLOCKED' && link.blockedReason && (
         <div className="field-error" style={{ marginTop: 6 }}>

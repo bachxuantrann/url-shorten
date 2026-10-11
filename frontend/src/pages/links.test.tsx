@@ -111,7 +111,8 @@ describe('danh sách link', () => {
     await screen.findByRole('link', { name: 'sho.rt/abc1234' });
 
     await userEvent.click(screen.getByRole('button', { name: 'Đã tắt' }));
-    await userEvent.selectOptions(screen.getByLabelText('Sắp xếp'), 'clickCount');
+    await userEvent.click(screen.getByRole('button', { name: /Sắp xếp/ }));
+    await userEvent.click(screen.getByRole('option', { name: 'Nhiều click nhất' }));
 
     await waitFor(() => {
       const last = listCalls().at(-1)!;

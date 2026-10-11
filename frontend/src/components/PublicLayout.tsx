@@ -1,8 +1,10 @@
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, Outlet, useLocation } from 'react-router-dom';
 import { LayoutDashboard, LogOut } from 'lucide-react';
 import { BRAND } from '../brand';
 import { useAuth } from '../auth/AuthProvider';
 import { useI18n } from '../i18n/I18nProvider';
+import { LogoutDialog } from './LogoutDialog';
 import { Preferences } from './Preferences';
 import { buttonClass } from './ui/Button';
 import { Logo } from './ui/Logo';
@@ -10,8 +12,8 @@ import { Logo } from './ui/Logo';
 /** Khung cho trang công khai (trang chủ, mở khoá, link không khả dụng): thanh trên + nội dung + chân trang. */
 export function PublicLayout() {
   const { t } = useI18n();
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [logoutOpen, setLogoutOpen] = useState(false);
   const onHome = useLocation().pathname === '/';
 
   return (
@@ -42,10 +44,7 @@ export function PublicLayout() {
                   className={buttonClass({ variant: 'ghost', icon: true })}
                   aria-label={t('nav.logout')}
                   title={t('nav.logout')}
-                  onClick={async () => {
-                    await logout();
-                    navigate('/');
-                  }}
+                  onClick={() => setLogoutOpen(true)}
                 >
                   <LogOut size={18} aria-hidden="true" />
                 </button>
@@ -63,6 +62,7 @@ export function PublicLayout() {
           </div>
         </div>
       </header>
+      <LogoutDialog open={logoutOpen} onClose={() => setLogoutOpen(false)} />
       <main id="main">
         <Outlet />
       </main>

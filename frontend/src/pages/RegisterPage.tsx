@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { AlertCircle, Check, Circle, Lock, Mail, User } from 'lucide-react';
+import { AlertCircle, AtSign, Check, Circle, Lock, Mail, User } from 'lucide-react';
 import { toErrorView, type ErrorView } from '../api/errors';
 import { useAuth } from '../auth/AuthProvider';
 import { AuthLayout } from '../components/AuthLayout';
@@ -80,6 +80,7 @@ export function RegisterPage() {
           label={t('auth.username')}
           name="username"
           autoComplete="username"
+          icon={<AtSign size={18} aria-hidden="true" />}
           hint={t('auth.username.hint')}
           value={form.username}
           onChange={set('username')}

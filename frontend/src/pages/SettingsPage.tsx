@@ -54,6 +54,10 @@ function ProfileCard() {
   const [fullName, setFullName] = useState(user?.fullName ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
 
+  // Chỉ cho lưu khi có thay đổi thật so với hồ sơ hiện tại (khoảng trắng đầu/cuối không tính); sau khi lưu thành công user được
+  // cập nhật nên nút tự khoá lại
+  const dirty = fullName.trim() !== (user?.fullName ?? '') || email.trim() !== (user?.email ?? '');
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     const ok = await run(async () => setUser(await updateProfile({ fullName: fullName.trim(), email: email.trim() })));
@@ -76,7 +80,7 @@ function ProfileCard() {
           <Field label={t('auth.email')} name="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} error={error?.fields.email} />
         </div>
         <div>
-          <Button type="submit" loading={busy} disabled={fullName.trim() === '' || email.trim() === ''}>
+          <Button type="submit" loading={busy} disabled={!dirty || fullName.trim() === '' || email.trim() === ''}>
             {t('common.save')}
           </Button>
         </div>

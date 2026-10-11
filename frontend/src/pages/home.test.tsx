@@ -134,6 +134,45 @@ describe('trang chủ: nội dung giới thiệu', () => {
   });
 });
 
+describe('liên kết # tới các phần của trang', () => {
+  it('mở thẳng /#faq thì cuộn tới phần hỏi đáp sau khi trang dựng xong', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    renderApp('/#faq');
+
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView.mock.contexts[0]).toBe(document.getElementById('faq'));
+  });
+
+  it('hash không khớp phần tử nào thì không lỗi và không cuộn', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    renderApp('/#khong-co');
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('không có hash thì không cuộn', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    renderApp('/');
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('các phần có id khớp với liên kết trên thanh điều hướng', () => {
+    renderApp('/');
+
+    for (const id of ['features', 'how', 'faq']) {
+      expect(document.getElementById(id), id).not.toBeNull();
+      expect(document.querySelector('nav a[href="#' + id + '"]'), id).not.toBeNull();
+    }
+  });
+});
+
 describe('ngôn ngữ và giao diện', () => {
   it('đổi sang tiếng Anh và nhớ lựa chọn', async () => {
     renderApp('/');

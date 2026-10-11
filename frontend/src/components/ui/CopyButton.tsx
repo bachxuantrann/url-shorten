@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { useI18n } from '../../i18n/I18nProvider';
+import { copyText } from '../../utils/clipboard';
 import { Button } from './Button';
 import { useToast } from './Toast';
 
@@ -12,20 +13,20 @@ interface CopyButtonProps {
   variant?: 'primary' | 'secondary' | 'ghost';
 }
 
-/** Chép vào clipboard, đổi icon thành dấu tick 2 giây và báo bằng toast; lỗi clipboard (bị chặn) không làm vỡ giao diện. */
+/** Chép vào clipboard (có cách dự phòng), đổi icon thành dấu tick 2 giây và báo bằng toast; thất bại thì báo lỗi rõ ràng. */
 export function CopyButton({ text, label, size = 'sm', variant = 'ghost' }: CopyButtonProps) {
   const { t } = useI18n();
   const toast = useToast();
   const [copied, setCopied] = useState(false);
 
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
+    if (await copyText(text)) {
       setCopied(true);
       toast.success(t('toast.copied'));
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* clipboard bị chặn: người dùng vẫn chọn và chép tay được */
+    } else {
+      // Không im lặng: người dùng cần biết để tự chọn và chép
+      toast.error(t('toast.copyFailed'));
     }
   }
 

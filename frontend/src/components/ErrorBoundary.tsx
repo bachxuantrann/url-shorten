@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { TriangleAlert } from 'lucide-react';
 import { useI18n } from '../i18n/I18nProvider';
+import { isChunkError } from '../utils/lazyWithReload';
 import { Button, buttonClass } from './ui/Button';
 
 interface Props {
@@ -9,6 +10,8 @@ interface Props {
 
 interface State {
   failed: boolean;
+  /** Lỗi tải chunk: Thử lại vô dụng (React.lazy nhớ kết quả thất bại), chỉ tải lại trang mới cứu được. */
+  chunk: boolean;
 }
 
 /**
@@ -17,10 +20,10 @@ interface State {
  * Dùng thẻ <a href> (tải lại hẳn trang) cho nút về trang chủ vì router có thể đang ở trạng thái hỏng.
  */
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { failed: false };
+  state: State = { failed: false, chunk: false };
 
-  static getDerivedStateFromError(): State {
-    return { failed: true };
+  static getDerivedStateFromError(error: unknown): State {
+    return { failed: true, chunk: isChunkError(error) };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -29,11 +32,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (!this.state.failed) return this.props.children;
-    return <ErrorFallback onRetry={() => this.setState({ failed: false })} />;
+    return <ErrorFallback canRetry={!this.state.chunk} onRetry={() => this.setState({ failed: false, chunk: false })} />;
   }
 }
 
-function ErrorFallback({ onRetry }: { onRetry: () => void }) {
+function ErrorFallback({ onRetry, canRetry }: { onRetry: () => void; canRetry: boolean }) {
   const { t } = useI18n();
   return (
     <div className="status-page" role="alert">
@@ -47,9 +50,11 @@ function ErrorFallback({ onRetry }: { onRetry: () => void }) {
           <Button size="lg" block onClick={() => window.location.reload()}>
             {t('error.boundary.reload')}
           </Button>
-          <Button variant="ghost" block onClick={onRetry}>
-            {t('error.boundary.retry')}
-          </Button>
+          {canRetry && (
+            <Button variant="ghost" block onClick={onRetry}>
+              {t('error.boundary.retry')}
+            </Button>
+          )}
           <a href="/" className={buttonClass({ variant: 'ghost', block: true })}>
             {t('unavailable.home')}
           </a>

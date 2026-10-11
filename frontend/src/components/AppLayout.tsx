@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Link2, LogOut, Menu as MenuIcon, Plus, Settings } from 'lucide-react';
+import { CircleHelp, Link2, LogOut, Menu as MenuIcon, Plus, Settings } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { useI18n } from '../i18n/I18nProvider';
+import { LogoutDialog } from './LogoutDialog';
 import { CreateLinkModal } from './modals';
 import { Preferences } from './Preferences';
-import { Button, buttonClass } from './ui/Button';
+import { Button } from './ui/Button';
 import { Logo } from './ui/Logo';
 import { Menu, MenuItem, MenuSeparator } from './ui/Menu';
 
@@ -27,10 +28,11 @@ export function useCreateLink(): CreateLinkContext {
 /** Khung ứng dụng sau đăng nhập: thanh bên (thu thành ngăn kéo trên điện thoại), thanh trên và hộp thoại tạo link. */
 export function AppLayout() {
   const { t } = useI18n();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [navOpen, setNavOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
   const [createdVersion, setCreatedVersion] = useState(0);
 
   const openCreate = useCallback(() => setCreateOpen(true), []);
@@ -65,9 +67,11 @@ export function AppLayout() {
               </NavLink>
             ))}
           </nav>
-          <div className="side-foot">
-            <Link to="/" className={buttonClass({ variant: 'ghost', block: true })}>
-              {t('nav.home')}
+          {/* Trợ giúp thay cho nút "Trang chủ" trước đây: người đang quản lý link cần câu trả lời nhanh, không cần quay về trang giới thiệu */}
+          <div className="side-foot side-nav" onClick={() => setNavOpen(false)}>
+            <Link to="/#faq">
+              <CircleHelp size={18} aria-hidden="true" />
+              {t('nav.help')}
             </Link>
           </div>
         </aside>
@@ -109,11 +113,9 @@ export function AppLayout() {
                   </MenuItem>
                   <MenuItem
                     icon={<LogOut size={16} aria-hidden="true" />}
-                    onSelect={async () => {
+                    onSelect={() => {
                       close();
-                      // Về trang chủ TRƯỚC khi xoá phiên: xoá trước thì RequireAuth đẩy người dùng sang /login
-                      navigate('/');
-                      await logout();
+                      setLogoutOpen(true);
                     }}
                   >
                     {t('nav.logout')}
@@ -128,6 +130,7 @@ export function AppLayout() {
         </div>
       </div>
 
+      <LogoutDialog open={logoutOpen} onClose={() => setLogoutOpen(false)} />
       <CreateLinkModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}

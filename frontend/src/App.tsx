@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactElement } from 'react';
+import { Suspense, type ReactElement } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth/AuthProvider';
 import { AppLayout } from './components/AppLayout';
@@ -10,9 +10,11 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { NotFoundPage, UnavailablePage, UnlockPage } from './pages/StatusPages';
+import { lazyWithReload } from './utils/lazyWithReload';
 
 // Trang chi tiết kéo theo thư viện biểu đồ (nặng): chỉ tải khi người dùng mở nó
-const LinkDetailPage = lazy(() => import('./pages/LinkDetailPage').then((m) => ({ default: m.LinkDetailPage })));
+// (lazyWithReload tự tải lại trang một lần nếu chunk không còn sau khi deploy bản mới)
+const LinkDetailPage = lazyWithReload(() => import('./pages/LinkDetailPage').then((m) => ({ default: m.LinkDetailPage })));
 
 /** Trang cần đăng nhập: chưa đăng nhập thì sang /login và quay lại đúng trang sau khi vào. */
 function RequireAuth({ children }: { children: ReactElement }) {

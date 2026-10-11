@@ -12,7 +12,8 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useI18n } from '../i18n/I18nProvider';
-import { displayUrl, formatDateTime, lastDays } from '../utils/datetime';
+import { useServerTime } from '../hooks/useServerTime';
+import { displayUrl } from '../utils/datetime';
 import { AlertCircle } from 'lucide-react';
 
 const PRESETS = [7, 30, 90];
@@ -22,7 +23,12 @@ export function LinkDetailPage() {
   const { code = '' } = useParams();
   const navigate = useNavigate();
   const { t, language } = useI18n();
-  const [range, setRange] = useState(() => lastDays(30));
+  const time = useServerTime();
+  // Mặc định 30 ngày gần nhất tính theo NGÀY CỦA MÁY CHỦ (thống kê gộp theo ngày máy chủ): đợi biết múi giờ rồi mới đặt và gọi API
+  const [range, setRange] = useState<{ from: string; to: string } | null>(null);
+  useEffect(() => {
+    if (time.ready && range === null) setRange(time.lastDays(30));
+  }, [time, range]);
   const [link, setLink] = useState<UrlResponse | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [stats, setStats] = useState<UrlStats | null>(null);
@@ -48,7 +54,7 @@ export function LinkDetailPage() {
 
   useEffect(() => {
     // Ô ngày đang trống (người dùng đang sửa): chưa gọi API
-    if (!range.from || !range.to) return;
+    if (!range || !range.from || !range.to) return;
     let cancelled = false;
     setLoading(true);
     getStats(code, range.from, range.to)
@@ -65,7 +71,7 @@ export function LinkDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [code, range.from, range.to, t]);
+  }, [code, range, t]);
 
   const onChanged = useCallback(
     (updated: UrlResponse | null) => {
@@ -106,8 +112,8 @@ export function LinkDetailPage() {
 
   const fmt = (n: number) => n.toLocaleString(language);
   const isPreset = (days: number) => {
-    const r = lastDays(days);
-    return r.from === range.from && r.to === range.to;
+    const r = time.lastDays(days);
+    return r.from === range?.from && r.to === range?.to;
   };
 
   return (
@@ -159,7 +165,7 @@ export function LinkDetailPage() {
         <div className="date-range">
           <div className="segmented" role="group" aria-label={t('chart.daily')}>
             {PRESETS.map((days) => (
-              <button key={days} type="button" aria-pressed={isPreset(days)} onClick={() => setRange(lastDays(days))}>
+              <button key={days} type="button" aria-pressed={isPreset(days)} onClick={() => setRange(time.lastDays(days))}>
                 {t('detail.range.days', { days })}
               </button>
             ))}
@@ -167,11 +173,11 @@ export function LinkDetailPage() {
           <span className="spacer" />
           <label className="row small muted" style={{ gap: 8 }}>
             {t('detail.range.from')}
-            <input type="date" value={range.from} max={range.to || undefined} onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))} />
+            <input type="date" value={range?.from ?? ''} max={range?.to || undefined} onChange={(e) => setRange((r) => ({ from: e.target.value, to: r?.to ?? '' }))} />
           </label>
           <label className="row small muted" style={{ gap: 8 }}>
             {t('detail.range.to')}
-            <input type="date" value={range.to} min={range.from || undefined} onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))} />
+            <input type="date" value={range?.to ?? ''} min={range?.from || undefined} onChange={(e) => setRange((r) => ({ from: r?.from ?? '', to: e.target.value }))} />
           </label>
         </div>
       </section>
@@ -213,21 +219,22 @@ export function LinkDetailPage() {
             <RankList title={t('chart.os')} items={stats.operatingSystems} />
           </div>
           <p className="muted small">{t('chart.breakdownNote')}</p>
+          {time.differs && <p className="muted small">{t('chart.tzNote', { zone: time.serverZoneLabel })}</p>}
         </div>
       )}
 
-      {link && (
+      {link && time.ready && (
         <section className="card card-pad" aria-labelledby="details-title">
           <h2 id="details-title" style={{ marginBottom: 16 }}>{t('detail.info.title')}</h2>
           <dl className="details-list">
             <dt>{t('detail.info.destination')}</dt>
             <dd>{link.originalUrl}</dd>
             <dt>{t('detail.info.created')}</dt>
-            <dd>{formatDateTime(link.createdAt, language)}</dd>
+            <dd>{time.format(link.createdAt)}</dd>
             <dt>{t('detail.info.updated')}</dt>
-            <dd>{formatDateTime(link.updatedAt, language)}</dd>
+            <dd>{time.format(link.updatedAt)}</dd>
             <dt>{t('detail.info.expires')}</dt>
-            <dd>{link.expiresAt ? formatDateTime(link.expiresAt, language) : t('link.neverExpires')}</dd>
+            <dd>{link.expiresAt ? time.format(link.expiresAt) : t('link.neverExpires')}</dd>
             <dt>{t('detail.info.password')}</dt>
             <dd>{link.passwordProtected ? t('detail.info.on') : t('detail.info.off')}</dd>
           </dl>

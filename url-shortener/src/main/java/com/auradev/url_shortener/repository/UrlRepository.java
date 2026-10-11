@@ -9,6 +9,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,6 +26,36 @@ public interface UrlRepository extends JpaRepository<Url, Long> {
      */
     @Query(value = "SELECT nextval('short_code_seq')", nativeQuery = true)
     long nextShortCodeSequence();
+
+    /**
+     * Chuyển tối đa {@code limit} link ACTIVE đã quá hạn sang EXPIRED <b>trong một câu lệnh SQL</b>
+     * (thay vì SELECT rồi UPDATE từng dòng) và trả về short code của các link vừa đổi.
+     *
+     * <p>{@code FOR UPDATE SKIP LOCKED}: nhiều instance chạy job cùng lúc sẽ lấy các dòng khác nhau,
+     * không xử lý trùng và không chờ nhau. Phải gọi trong một transaction.
+     *
+     * <p>Đây là bulk update nên auditing của JPA không chạy: {@code updated_at}/{@code updated_by}
+     * được set thủ công ở đây.
+     */
+    @Query(value = """
+            WITH due AS (
+                SELECT id FROM urls
+                WHERE status = 'ACTIVE' AND expires_at IS NOT NULL AND expires_at <= :now
+                ORDER BY expires_at
+                LIMIT :limit
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE urls u
+            SET status = 'EXPIRED', updated_at = :now, updated_by = :updatedBy
+            FROM due
+            WHERE u.id = due.id
+            RETURNING u.short_code
+            """, nativeQuery = true)
+    List<String> expireDueLinks(
+            @Param("now") LocalDateTime now,
+            @Param("limit") int limit,
+            @Param("updatedBy") String updatedBy
+    );
 
     /** Tìm link theo mã công khai, mọi trạng thái (dùng cho redirect) */
     Optional<Url> findByShortCode(String shortCode);

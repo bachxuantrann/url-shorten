@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
@@ -37,6 +38,7 @@ public class RedirectServiceImpl implements RedirectService {
 
     private final UrlRepository   urlRepository;
     private final UrlCacheService urlCacheService;
+    private final Clock          clock;
 
     @Override
     public String resolveTarget(String shortCode) {
@@ -72,7 +74,7 @@ public class RedirectServiceImpl implements RedirectService {
 
         switch (cached.status()) {
             case ACTIVE -> {
-                if (cached.expiresAt() != null && !cached.expiresAt().isAfter(LocalDateTime.now())) {
+                if (cached.expiresAt() != null && !cached.expiresAt().isAfter(LocalDateTime.now(clock))) {
                     throw new AppException(ErrorCode.URL_GONE);
                 }
                 return cached.originalUrl();

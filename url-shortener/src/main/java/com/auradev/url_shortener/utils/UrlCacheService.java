@@ -11,9 +11,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -51,6 +54,7 @@ public class UrlCacheService {
 
     private final RedisTemplate<String, String> redisTemplate;
     private final ShortenerProperties           properties;
+    private final Clock                         clock;
 
     /**
      * @return giá trị trong cache; rỗng nếu cache miss, dữ liệu hỏng hoặc Redis không dùng được
@@ -102,6 +106,39 @@ public class UrlCacheService {
     }
 
     /**
+     * Xoá cache của nhiều link bằng <b>một</b> lệnh Redis {@code DEL} (thay vì một lệnh mỗi link).
+     */
+    public void evictAll(Collection<String> codes) {
+        if (codes.isEmpty()) {
+            return;
+        }
+        try {
+            redisTemplate.delete(codes.stream().map(this::key).toList());
+        } catch (RuntimeException e) {
+            log.error("Could not evict URL cache for {} link(s), stale until TTL: {}", codes.size(), e.toString());
+        }
+    }
+
+    /** Như {@link #evictAfterCommit} nhưng cho nhiều link, gom thành một lệnh Redis. */
+    public void evictAllAfterCommit(Collection<String> codes) {
+        if (codes.isEmpty()) {
+            return;
+        }
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            // Sao chép để không phụ thuộc collection của caller sau khi method trả về
+            List<String> snapshot = List.copyOf(codes);
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    evictAll(snapshot);
+                }
+            });
+        } else {
+            evictAll(codes);
+        }
+    }
+
+    /**
      * Xoá cache sau khi transaction hiện tại commit (hoặc ngay lập tức nếu không có transaction).
      */
     public void evictAfterCommit(String code) {
@@ -128,7 +165,7 @@ public class UrlCacheService {
     private Duration ttlFor(Url url) {
         Duration ttl = properties.getCacheTtl();
         if (url.getExpiresAt() != null) {
-            Duration remaining = Duration.between(LocalDateTime.now(), url.getExpiresAt());
+            Duration remaining = Duration.between(LocalDateTime.now(clock), url.getExpiresAt());
             if (remaining.isNegative() || remaining.isZero()) {
                 return properties.getNegativeCacheTtl();
             }

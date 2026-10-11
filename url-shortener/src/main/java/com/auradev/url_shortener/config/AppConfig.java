@@ -8,6 +8,7 @@ import org.springframework.web.servlet.LocaleResolver;
 import org.springframework.web.servlet.i18n.AcceptHeaderLocaleResolver;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.util.Arrays;
 import java.util.Locale;
 
@@ -30,6 +31,15 @@ public class AppConfig {
         // Cấu hình danh sách các ngôn ngữ hỗ trợ
         localeResolver.setSupportedLocales(Arrays.asList(new Locale("vi"), new Locale("en")));
         return localeResolver;
+    }
+
+    /**
+     * Đồng hồ hệ thống, inject vào mọi nơi cần "bây giờ" (hết hạn link, TTL cache...)
+     * để test điều khiển được thời gian bằng {@link Clock#fixed}.
+     */
+    @Bean
+    public Clock clock() {
+        return Clock.systemDefaultZone();
     }
 
     /**

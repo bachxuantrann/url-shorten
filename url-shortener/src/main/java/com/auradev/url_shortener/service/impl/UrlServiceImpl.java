@@ -22,6 +22,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Locale;
 import java.util.UUID;
@@ -32,6 +33,7 @@ import java.util.UUID;
  * <p>Vòng đời trạng thái (do chủ link thao tác):
  * <pre>
  *   ACTIVE  ⇄ DISABLED          (disable / enable)
+ *   ACTIVE  → EXPIRED           (job định kỳ khi quá expiresAt, xem UrlExpirationJob)
  *   EXPIRED → ACTIVE            (update với hạn mới)
  *   *       → DELETED           (delete, trừ BLOCKED)
  *   BLOCKED                     (chủ link không được sửa/tắt/xoá)
@@ -47,6 +49,7 @@ public class UrlServiceImpl implements UrlService {
     private final ShortCodeGenerator  shortCodeGenerator;
     private final ShortenerProperties shortenerProperties;
     private final UrlCacheService     urlCacheService;
+    private final Clock               clock;
 
     // ===========================
     //  CREATE
@@ -146,7 +149,7 @@ public class UrlServiceImpl implements UrlService {
 
         switch (url.getStatus()) {
             case DISABLED -> {
-                if (url.getExpiresAt() != null && !url.getExpiresAt().isAfter(LocalDateTime.now())) {
+                if (url.getExpiresAt() != null && !url.getExpiresAt().isAfter(LocalDateTime.now(clock))) {
                     throw new AppException(ErrorCode.URL_EXPIRED);
                 }
                 url.setStatus(UrlStatusEnum.ACTIVE);
@@ -172,7 +175,7 @@ public class UrlServiceImpl implements UrlService {
         assertNotBlocked(url);
 
         url.setStatus(UrlStatusEnum.DELETED);
-        url.setDeletedAt(LocalDateTime.now());
+        url.setDeletedAt(LocalDateTime.now(clock));
         urlRepository.save(url);
         urlCacheService.evictAfterCommit(shortCode);
 
@@ -212,8 +215,18 @@ public class UrlServiceImpl implements UrlService {
         return "%" + escaped + "%";
     }
 
+    /**
+     * Link ACTIVE đã quá hạn nhưng job chưa kịp chuyển sang EXPIRED được báo là EXPIRED,
+     * khớp với kết quả redirect (410) thay vì hiển thị ACTIVE.
+     */
     private UrlResponse toResponse(Url url) {
-        return urlMapper.toUrlResponse(url, baseUrl());
+        UrlResponse response = urlMapper.toUrlResponse(url, baseUrl());
+        if (url.getStatus() == UrlStatusEnum.ACTIVE
+                && url.getExpiresAt() != null
+                && !url.getExpiresAt().isAfter(LocalDateTime.now(clock))) {
+            response.setStatus(UrlStatusEnum.EXPIRED);
+        }
+        return response;
     }
 
     private String baseUrl() {

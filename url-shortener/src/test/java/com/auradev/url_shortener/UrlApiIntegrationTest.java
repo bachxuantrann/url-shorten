@@ -211,6 +211,19 @@ class UrlApiIntegrationTest {
         assertThat(resp.body.get("data").get("status").asText()).isEqualTo("ACTIVE");
     }
 
+    @Test
+    void activeLinkPastItsExpiryIsReportedAsExpiredBeforeTheJobRuns() throws Exception {
+        String code = createCode(alice, "https://example.com/stale");
+        Url url = urlRepository.findByShortCode(code).orElseThrow();
+        url.setExpiresAt(LocalDateTime.now().minusMinutes(1));
+        urlRepository.save(url);
+
+        // DB vẫn ACTIVE, nhưng API khớp với redirect (410) thay vì báo ACTIVE
+        assertThat(urlRepository.findByShortCode(code).orElseThrow().getStatus()).isEqualTo(UrlStatusEnum.ACTIVE);
+        assertThat(call("GET", "/api/v1/urls/" + code, alice, null).body.get("data").get("status").asText())
+                .isEqualTo("EXPIRED");
+    }
+
     // ===========================
     //  DISABLE / ENABLE
     // ===========================

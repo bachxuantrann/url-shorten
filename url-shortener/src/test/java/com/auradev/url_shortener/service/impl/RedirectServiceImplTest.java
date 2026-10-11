@@ -7,16 +7,19 @@ import com.auradev.url_shortener.exception.ErrorCode;
 import com.auradev.url_shortener.repository.UrlRepository;
 import com.auradev.url_shortener.utils.UrlCacheService;
 import com.auradev.url_shortener.utils.UrlCacheService.CachedUrl;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -33,14 +36,22 @@ class RedirectServiceImplTest {
     private static final String CODE = "aB3xK9z";
     private static final String TARGET = "https://example.com/target";
 
+    /** Đồng hồ cố định để kiểm soát chính xác thời điểm "bây giờ". */
+    private static final LocalDateTime NOW = LocalDateTime.of(2030, 1, 1, 12, 0, 0);
+    private static final Clock CLOCK = Clock.fixed(NOW.atZone(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
+
     @Mock
     private UrlRepository urlRepository;
 
     @Mock
     private UrlCacheService urlCacheService;
 
-    @InjectMocks
     private RedirectServiceImpl service;
+
+    @BeforeEach
+    void setUp() {
+        service = new RedirectServiceImpl(urlRepository, urlCacheService, CLOCK);
+    }
 
     // ===========================
     //  INPUT GUARD
@@ -128,7 +139,7 @@ class RedirectServiceImplTest {
     @Test
     void activeLinkPastItsExpiryIsGone() {
         when(urlCacheService.get(CODE)).thenReturn(Optional.of(
-                new CachedUrl(UrlStatusEnum.ACTIVE, LocalDateTime.now().minusSeconds(1), TARGET)));
+                new CachedUrl(UrlStatusEnum.ACTIVE, NOW.minusSeconds(1), TARGET)));
 
         assertThatThrownBy(() -> service.resolveTarget(CODE)).satisfies(e -> assertError(e, ErrorCode.URL_GONE));
     }
@@ -136,9 +147,39 @@ class RedirectServiceImplTest {
     @Test
     void activeLinkBeforeItsExpiryRedirects() {
         when(urlCacheService.get(CODE)).thenReturn(Optional.of(
-                new CachedUrl(UrlStatusEnum.ACTIVE, LocalDateTime.now().plusHours(1), TARGET)));
+                new CachedUrl(UrlStatusEnum.ACTIVE, NOW.plusHours(1), TARGET)));
 
         assertThat(service.resolveTarget(CODE)).isEqualTo(TARGET);
+    }
+
+    // Ca biên: link hết hạn đúng thời điểm user click
+
+    @Test
+    void linkExpiringExactlyNowIsAlreadyGone() {
+        when(urlCacheService.get(CODE)).thenReturn(Optional.of(
+                new CachedUrl(UrlStatusEnum.ACTIVE, NOW, TARGET)));
+
+        assertThatThrownBy(() -> service.resolveTarget(CODE)).satisfies(e -> assertError(e, ErrorCode.URL_GONE));
+    }
+
+    @Test
+    void linkExpiringOneNanosecondFromNowStillRedirects() {
+        when(urlCacheService.get(CODE)).thenReturn(Optional.of(
+                new CachedUrl(UrlStatusEnum.ACTIVE, NOW.plusNanos(1), TARGET)));
+
+        assertThat(service.resolveTarget(CODE)).isEqualTo(TARGET);
+    }
+
+    @Test
+    void sameCachedLinkFlipsFromRedirectToGoneAsTheClockAdvances() {
+        when(urlCacheService.get(CODE)).thenReturn(Optional.of(
+                new CachedUrl(UrlStatusEnum.ACTIVE, NOW.plusMinutes(1), TARGET)));
+        assertThat(service.resolveTarget(CODE)).isEqualTo(TARGET);
+
+        RedirectServiceImpl later = new RedirectServiceImpl(urlRepository, urlCacheService,
+                Clock.offset(CLOCK, Duration.ofMinutes(2)));
+
+        assertThatThrownBy(() -> later.resolveTarget(CODE)).satisfies(e -> assertError(e, ErrorCode.URL_GONE));
     }
 
     // ===========================

@@ -178,6 +178,16 @@
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<systemPropertyVariables>
+						<!-- Job hết hạn chỉ chạy khi test gọi trực tiếp, tránh chạy ngầm làm test thiếu ổn định -->
+						<app.shortener.expiry-job-interval>PT24H</app.shortener.expiry-job-interval>
+					</systemPropertyVariables>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
 				<configuration>
 					<source>${java.version}</source>

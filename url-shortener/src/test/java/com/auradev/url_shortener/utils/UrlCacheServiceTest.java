@@ -9,14 +9,18 @@ import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -35,7 +39,7 @@ class UrlCacheServiceTest {
         redisTemplate = mock(RedisTemplate.class);
         valueOps = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        cacheService = new UrlCacheService(redisTemplate, new ShortenerProperties());
+        cacheService = new UrlCacheService(redisTemplate, new ShortenerProperties(), Clock.systemDefaultZone());
     }
 
     @Test
@@ -56,6 +60,23 @@ class UrlCacheServiceTest {
         assertThatCode(() -> cacheService.putMissing("abc1234")).doesNotThrowAnyException();
         assertThatCode(() -> cacheService.evict("abc1234")).doesNotThrowAnyException();
         assertThatCode(() -> cacheService.evictAfterCommit("abc1234")).doesNotThrowAnyException();
+    }
+
+    @Test
+    void evictAllDeletesEveryKeyWithASingleRedisCall() {
+        cacheService.evictAll(List.of("aaa1111", "bbb2222", "ccc3333"));
+
+        verify(redisTemplate).delete(List.of("URL:aaa1111", "URL:bbb2222", "URL:ccc3333"));
+    }
+
+    @Test
+    void evictAllDoesNothingForAnEmptyCollectionAndSurvivesRedisFailure() {
+        cacheService.evictAll(List.of());
+        cacheService.evictAllAfterCommit(List.of());
+        verify(redisTemplate, never()).delete(anyCollection());
+
+        when(redisTemplate.delete(anyCollection())).thenThrow(new RedisConnectionFailureException("redis down"));
+        assertThatCode(() -> cacheService.evictAll(List.of("aaa1111"))).doesNotThrowAnyException();
     }
 
     @Test

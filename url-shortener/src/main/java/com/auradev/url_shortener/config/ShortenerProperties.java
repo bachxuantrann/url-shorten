@@ -47,4 +47,7 @@ public class ShortenerProperties {
      * quá tải DB. Mặc định 1 phút.
      */
     private Duration negativeCacheTtl = Duration.ofMinutes(1);
+
+    /** Số link tối đa được chuyển sang EXPIRED trong một transaction của job hết hạn. */
+    private int expiryBatchSize = 500;
 }

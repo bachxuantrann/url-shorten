@@ -75,6 +75,11 @@ app:
   shortener:
     base-url: ${APP_BASE_URL:http://localhost:8080}
     code-secret: ${SHORT_CODE_SECRET:3b8a535abb7ec29b3b49383e0e6d22e64b74555ce6263071e7ce5c39bb4ead8e}
+    cache-ttl: PT10M              # link được cache trong Redis tối đa 10 phút
+    negative-cache-ttl: PT1M      # cache ngắn cho mã không tồn tại / link đã hết hạn
+    expiry-job-enabled: true      # job chuyển link quá hạn sang EXPIRED
+    expiry-job-interval: PT1M     # chu kỳ chạy job (ISO-8601)
+    expiry-batch-size: 500        # số link mỗi lần UPDATE
 
 # ===== Logging =====
 logging:

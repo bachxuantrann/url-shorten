@@ -5,6 +5,7 @@ import com.auradev.url_shortener.enums.UserStatusEnum;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
+import org.hibernate.annotations.BatchSize;
 
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -72,7 +73,13 @@ public class User extends BaseEntity {
      * Danh sách vai trò của người dùng.
      * Sử dụng {@code FetchType.EAGER} vì roles luôn cần khi authenticate.
      * Lưu trong bảng phụ {@code user_roles}.
+     *
+     * <p>{@link BatchSize}: khi một query trả về nhiều user, roles của tối đa 100 user (bằng
+     * {@code AppConstant.MAX_PAGE_SIZE}) được tải bằng <b>một</b> câu {@code WHERE user_id IN (...)}
+     * thay vì một câu cho mỗi user (N+1). Không dùng {@code JOIN FETCH} vì kết hợp với phân trang
+     * sẽ buộc Hibernate phân trang trong bộ nhớ.
      */
+    @BatchSize(size = 100)
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(
             name = "user_roles",

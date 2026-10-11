@@ -1,19 +1,16 @@
-import { useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { LayoutDashboard, LogOut } from 'lucide-react';
 import { BRAND } from '../brand';
 import { useAuth } from '../auth/AuthProvider';
 import { useI18n } from '../i18n/I18nProvider';
-import { LogoutDialog } from './LogoutDialog';
 import { Preferences } from './Preferences';
 import { buttonClass } from './ui/Button';
 import { Logo } from './ui/Logo';
+import { UserMenu } from './UserMenu';
 
 /** Khung cho trang công khai (trang chủ, mở khoá, link không khả dụng): thanh trên + nội dung + chân trang. */
 export function PublicLayout() {
   const { t } = useI18n();
   const { user } = useAuth();
-  const [logoutOpen, setLogoutOpen] = useState(false);
   const onHome = useLocation().pathname === '/';
 
   return (
@@ -34,21 +31,8 @@ export function PublicLayout() {
           <div className="topbar-actions">
             <Preferences />
             {user ? (
-              <>
-                <Link to="/dashboard" className={buttonClass({ size: 'md' })}>
-                  <LayoutDashboard size={16} aria-hidden="true" />
-                  <span className="hide-sm">{t('nav.links')}</span>
-                </Link>
-                <button
-                  type="button"
-                  className={buttonClass({ variant: 'ghost', icon: true })}
-                  aria-label={t('nav.logout')}
-                  title={t('nav.logout')}
-                  onClick={() => setLogoutOpen(true)}
-                >
-                  <LogOut size={18} aria-hidden="true" />
-                </button>
-              </>
+              // Đã đăng nhập: avatar chữ viết tắt + menu tài khoản (thay cho nút Link của tôi và nút đăng xuất rời rạc)
+              <UserMenu showLinks />
             ) : (
               <>
                 <Link to="/login" className={`${buttonClass({ variant: 'ghost' })} hide-sm`}>
@@ -62,7 +46,6 @@ export function PublicLayout() {
           </div>
         </div>
       </header>
-      <LogoutDialog open={logoutOpen} onClose={() => setLogoutOpen(false)} />
       <main id="main">
         <Outlet />
       </main>

@@ -255,11 +255,12 @@ describe('route cần đăng nhập', () => {
     expect(tokenStore.access()).toBeNull();
   });
 
-  it('nút đăng xuất ở thanh trên của trang công khai cũng hỏi xác nhận', async () => {
+  it('đăng xuất từ avatar ở thanh trên của trang công khai cũng hỏi xác nhận', async () => {
     serve({ 'GET /api/v1/users/me': me, 'POST /api/v1/auth/logout': () => ok(null) });
     renderApp('/', { authed: true });
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Đăng xuất' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Menu tài khoản' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Đăng xuất' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(callsTo('POST', '/api/v1/auth/logout')).toHaveLength(0);
     expect(tokenStore.access()).toBe('at');

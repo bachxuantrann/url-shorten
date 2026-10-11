@@ -1,14 +1,12 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { CircleHelp, Link2, LogOut, Menu as MenuIcon, Plus, Settings } from 'lucide-react';
-import { useAuth } from '../auth/AuthProvider';
+import { Link, NavLink, Outlet } from 'react-router-dom';
+import { CircleHelp, Link2, Menu as MenuIcon, Plus, Settings } from 'lucide-react';
 import { useI18n } from '../i18n/I18nProvider';
-import { LogoutDialog } from './LogoutDialog';
 import { CreateLinkModal } from './modals';
 import { Preferences } from './Preferences';
 import { Button } from './ui/Button';
 import { Logo } from './ui/Logo';
-import { Menu, MenuItem, MenuSeparator } from './ui/Menu';
+import { UserMenu } from './UserMenu';
 
 interface CreateLinkContext {
   /** Mở hộp thoại tạo link (nút ở thanh trên, trang danh sách, trạng thái rỗng). */
@@ -28,23 +26,12 @@ export function useCreateLink(): CreateLinkContext {
 /** Khung ứng dụng sau đăng nhập: thanh bên (thu thành ngăn kéo trên điện thoại), thanh trên và hộp thoại tạo link. */
 export function AppLayout() {
   const { t } = useI18n();
-  const { user } = useAuth();
-  const navigate = useNavigate();
   const [navOpen, setNavOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [logoutOpen, setLogoutOpen] = useState(false);
   const [createdVersion, setCreatedVersion] = useState(0);
 
   const openCreate = useCallback(() => setCreateOpen(true), []);
   const ctx = useMemo(() => ({ openCreate, createdVersion }), [openCreate, createdVersion]);
-
-  const displayName = user?.fullName || user?.username || '';
-  const initials = displayName
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0]!.toUpperCase())
-    .join('');
 
   const navItems = [
     { to: '/dashboard', icon: Link2, label: t('nav.links') },
@@ -88,41 +75,7 @@ export function AppLayout() {
               {t('links.create')}
             </Button>
             <Preferences />
-            <Menu
-              trigger={(props) => (
-                <button type="button" className="avatar" aria-label={t('nav.account')} {...props}>
-                  {initials || '?'}
-                </button>
-              )}
-            >
-              {(close) => (
-                <>
-                  <div style={{ padding: '6px 10px 8px' }}>
-                    <div style={{ fontWeight: 650 }} className="truncate">{displayName}</div>
-                    <div className="muted small truncate">{user?.email}</div>
-                  </div>
-                  <MenuSeparator />
-                  <MenuItem
-                    icon={<Settings size={16} aria-hidden="true" />}
-                    onSelect={() => {
-                      close();
-                      navigate('/settings');
-                    }}
-                  >
-                    {t('nav.settings')}
-                  </MenuItem>
-                  <MenuItem
-                    icon={<LogOut size={16} aria-hidden="true" />}
-                    onSelect={() => {
-                      close();
-                      setLogoutOpen(true);
-                    }}
-                  >
-                    {t('nav.logout')}
-                  </MenuItem>
-                </>
-              )}
-            </Menu>
+            <UserMenu />
           </header>
           <main id="main" className="shell-content">
             <Outlet />
@@ -130,7 +83,6 @@ export function AppLayout() {
         </div>
       </div>
 
-      <LogoutDialog open={logoutOpen} onClose={() => setLogoutOpen(false)} />
       <CreateLinkModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}

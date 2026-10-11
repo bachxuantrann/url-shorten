@@ -122,9 +122,11 @@ describe('trang chủ: nội dung giới thiệu', () => {
     serve({ 'GET /api/v1/users/me': me });
     renderApp('/', { authed: true });
 
-    expect(await screen.findByRole('link', { name: /Link của tôi/ })).toHaveAttribute('href', '/dashboard');
+    // đã đăng nhập: avatar chữ viết tắt thay cho các nút đăng nhập/đăng ký
+    expect(await screen.findByRole('button', { name: 'Menu tài khoản' })).toHaveTextContent('AN');
     expect(screen.queryByRole('heading', { name: 'Sẵn sàng làm chủ các link của bạn?' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Đăng ký miễn phí' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Đăng nhập' })).not.toBeInTheDocument();
   });
 
   it('có liên kết bỏ qua điều hướng cho bàn phím', () => {

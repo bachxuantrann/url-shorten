@@ -33,10 +33,19 @@ public class UrlClickRepository {
     }
 
     /**
-     * Một câu lệnh duy nhất cho cả lô, bất kể số dòng: các mảng được {@code unnest} thành bảng, chèn
-     * với {@code ON CONFLICT DO NOTHING} (event giao lại bị bỏ qua), rồi cộng {@code urls.click_count}
-     * <b>chỉ theo các dòng thực sự được chèn</b> (RETURNING) — đếm theo kích thước lô sẽ đếm trùng event
-     * giao lại. Chèn và cộng nằm trong cùng một câu lệnh nên không thể lệch nhau.
+     * Một câu lệnh duy nhất cho cả lô, bất kể số dòng. Các mảng được {@code unnest} thành bảng rồi:
+     * <ol>
+     *   <li>chèn vào {@code url_clicks} với {@code ON CONFLICT DO NOTHING} (event giao lại bị bỏ qua);</li>
+     *   <li>chèn các (link, ngày, visitor) của khách thật (không phải bot) vào {@code url_daily_visitors};
+     *       dòng nào chèn được nghĩa là khách đó mới xuất hiện trong ngày;</li>
+     *   <li>upsert {@code url_daily_stats}: cộng số click, click của bot và số khách mới;</li>
+     *   <li>cộng {@code urls.click_count}.</li>
+     * </ol>
+     * Mọi số cộng đều lấy từ các dòng <b>thực sự được chèn</b> (RETURNING), không phải kích thước lô, nên
+     * event giao lại không bao giờ bị đếm hai lần; và vì cùng một câu lệnh (một snapshot, một transaction)
+     * nên các bộ đếm không thể lệch nhau. Hai instance ghi cùng lúc vẫn đúng: khoá unique của
+     * {@code url_daily_visitors} quyết định ai là người "thấy đầu tiên". Các SELECT đều có
+     * {@code ORDER BY} để các lô đồng thời khoá dòng theo cùng một thứ tự (tránh deadlock).
      *
      * <p>Không set {@code updated_at}/{@code updated_by} của {@code urls}: một lượt click không phải là
      * một lần sửa link, và {@code updated_at} đang được API hiển thị như "lần sửa cuối".
@@ -51,15 +60,40 @@ public class UrlClickRepository {
                 SELECT event_id::uuid, url_id, clicked_at::timestamp, visitor_hash, country, device_type, browser, os
                 FROM input
                 ON CONFLICT DO NOTHING
-                RETURNING url_id
-            ), agg AS (
-                SELECT url_id, count(*) AS clicks FROM ins GROUP BY url_id
+                RETURNING url_id, clicked_at, visitor_hash, device_type
+            ), new_visitors AS (
+                INSERT INTO url_daily_visitors (url_id, stat_date, visitor_hash)
+                SELECT DISTINCT url_id, clicked_at::date, visitor_hash
+                FROM ins
+                WHERE visitor_hash IS NOT NULL AND device_type <> 'BOT'
+                ORDER BY 1, 2, 3
+                ON CONFLICT DO NOTHING
+                RETURNING url_id, stat_date
+            ), new_visitor_counts AS (
+                SELECT url_id, stat_date, count(*) AS visitors FROM new_visitors GROUP BY url_id, stat_date
+            ), daily AS (
+                SELECT url_id, clicked_at::date AS stat_date, count(*) AS clicks,
+                       count(*) FILTER (WHERE device_type = 'BOT') AS bot_clicks
+                FROM ins
+                GROUP BY url_id, clicked_at::date
+            ), daily_upsert AS (
+                INSERT INTO url_daily_stats (url_id, stat_date, clicks, bot_clicks, unique_visitors)
+                SELECT d.url_id, d.stat_date, d.clicks, d.bot_clicks, COALESCE(v.visitors, 0)
+                FROM daily d
+                LEFT JOIN new_visitor_counts v ON v.url_id = d.url_id AND v.stat_date = d.stat_date
+                ORDER BY d.url_id, d.stat_date
+                ON CONFLICT (url_id, stat_date) DO UPDATE SET
+                    clicks          = url_daily_stats.clicks + EXCLUDED.clicks,
+                    bot_clicks      = url_daily_stats.bot_clicks + EXCLUDED.bot_clicks,
+                    unique_visitors = url_daily_stats.unique_visitors + EXCLUDED.unique_visitors
+            ), totals AS (
+                SELECT url_id, sum(clicks)::bigint AS clicks FROM daily GROUP BY url_id
             )
             UPDATE urls u
-            SET click_count = u.click_count + agg.clicks
-            FROM agg
-            WHERE u.id = agg.url_id
-            RETURNING agg.clicks
+            SET click_count = u.click_count + totals.clicks
+            FROM totals
+            WHERE u.id = totals.url_id
+            RETURNING totals.clicks
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -88,7 +122,7 @@ public class UrlClickRepository {
                 int inserted = 0;
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
-                        inserted += rs.getInt(1);
+                        inserted += (int) rs.getLong(1);
                     }
                 }
                 return inserted;

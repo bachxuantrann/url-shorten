@@ -39,8 +39,9 @@ public class ClickPartitionJob {
         try {
             ClickPartitionService.Result result = partitionService.maintain(
                     LocalDate.now(clock), properties.getPartitionMonthsAhead(), properties.getRetentionMonths());
-            if (!result.created().isEmpty() || !result.dropped().isEmpty()) {
-                log.info("Click partitions: created {}, dropped {}", result.created(), result.dropped());
+            if (!result.created().isEmpty() || !result.dropped().isEmpty() || result.deletedVisitorRows() > 0) {
+                log.info("Click partitions: created {}, dropped {}, expired visitor rows deleted {}",
+                        result.created(), result.dropped(), result.deletedVisitorRows());
             }
         } catch (RuntimeException e) {
             log.error("Click partition job failed, will retry on next run", e);

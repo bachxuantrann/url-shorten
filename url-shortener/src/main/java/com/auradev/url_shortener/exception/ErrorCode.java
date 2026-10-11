@@ -56,6 +56,7 @@ public enum ErrorCode {
     URL_PASSWORD_REQUIRED("ERR_408", "api.error.url_password_required", HttpStatus.FORBIDDEN),
     URL_PASSWORD_INCORRECT("ERR_409", "api.error.url_password_incorrect", HttpStatus.FORBIDDEN),
     INVALID_LINK_PASSWORD("ERR_410", "api.error.invalid_link_password", HttpStatus.BAD_REQUEST),
+    INVALID_STATS_RANGE("ERR_411", "api.error.invalid_stats_range", HttpStatus.BAD_REQUEST),
 
     // ===== ABUSE PROTECTION (500-599) =====
     RATE_LIMITED("ERR_500", "api.error.rate_limited", HttpStatus.TOO_MANY_REQUESTS),

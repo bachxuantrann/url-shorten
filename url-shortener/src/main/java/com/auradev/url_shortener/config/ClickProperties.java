@@ -47,6 +47,22 @@ public class ClickProperties {
      */
     private String geoipDatabase;
 
+    /** Job đối soát bộ đếm (chạy mỗi {@code app.click.reconcile-job-interval}, mặc định một ngày). */
+    private boolean reconcileJobEnabled = true;
+
+    /**
+     * Tự sửa {@code urls.click_count} lệch so với tổng {@code url_daily_stats}. Mặc định tắt: job chỉ
+     * báo lỗi (log). Bộ đếm chỉ lệch khi có sự cố hoặc ai đó sửa tay dữ liệu, nên nên xem nguyên nhân
+     * trước khi bật.
+     */
+    private boolean reconcileRepair = false;
+
+    /** Số link lệch tối đa xử lý/báo cáo mỗi lần chạy. */
+    private int reconcileBatchSize = 1000;
+
+    /** Số ngày gần nhất mà thống kê theo ngày được đối chiếu lại với {@code url_clicks} thô. */
+    private int reconcileWindowDays = 2;
+
     /** Job tạo trước phân vùng tháng tới và xoá phân vùng quá hạn. */
     private boolean partitionJobEnabled = true;
 

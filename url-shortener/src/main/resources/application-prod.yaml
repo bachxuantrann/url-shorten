@@ -103,6 +103,11 @@ app:
     partition-job-interval: PT6H
     partition-months-ahead: 3
     retention-months: 13
+    reconcile-job-enabled: true
+    reconcile-job-interval: PT24H
+    reconcile-repair: ${CLICK_RECONCILE_REPAIR:false}   # true = tự sửa urls.click_count lệch (mặc định chỉ log cảnh báo)
+    reconcile-batch-size: 1000
+    reconcile-window-days: 2
 
   rate-limit:
     anonymous-create: { limit: 10, window: PT1H }    # theo IP: tối đa 10 link ẩn danh mỗi giờ

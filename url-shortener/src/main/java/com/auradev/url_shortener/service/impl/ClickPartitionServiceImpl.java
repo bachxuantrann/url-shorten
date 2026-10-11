@@ -41,11 +41,26 @@ public class ClickPartitionServiceImpl implements ClickPartitionService {
     public Result maintain(LocalDate today, int monthsAhead, int retentionMonths) {
         Boolean locked = jdbcTemplate.queryForObject("SELECT pg_try_advisory_xact_lock(?)", Boolean.class, ADVISORY_LOCK_KEY);
         if (!Boolean.TRUE.equals(locked)) {
-            return new Result(false, List.of(), List.of());
+            return new Result(false, List.of(), List.of(), 0);
         }
 
         YearMonth current = YearMonth.from(today);
-        return new Result(true, createUpcoming(current, monthsAhead), dropExpired(current, retentionMonths));
+        List<String> created = createUpcoming(current, monthsAhead);
+        List<String> dropped = dropExpired(current, retentionMonths);
+        return new Result(true, created, dropped, deleteExpiredVisitors(current, retentionMonths));
+    }
+
+    /**
+     * Xoá tập visitor theo ngày ({@code url_daily_visitors}) cũ hơn thời hạn lưu trữ dữ liệu thô. Bảng này
+     * chỉ để đếm unique visitor lúc ghi click mới (và dựng lại thống kê từ dữ liệu thô), còn kết quả đã nằm
+     * trong {@code url_daily_stats} nên không mất số liệu. Một câu {@code DELETE} theo index {@code stat_date}.
+     */
+    private int deleteExpiredVisitors(YearMonth current, int retentionMonths) {
+        if (retentionMonths <= 0) {
+            return 0;
+        }
+        return jdbcTemplate.update("DELETE FROM url_daily_visitors WHERE stat_date < ?",
+                java.sql.Date.valueOf(current.minusMonths(retentionMonths).atDay(1)));
     }
 
     private List<String> createUpcoming(YearMonth current, int monthsAhead) {

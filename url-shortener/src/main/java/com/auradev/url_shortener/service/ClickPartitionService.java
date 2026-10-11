@@ -10,7 +10,7 @@ import java.util.List;
 public interface ClickPartitionService {
 
     /** Kết quả một lần bảo trì. */
-    record Result(boolean ran, List<String> created, List<String> dropped) {
+    record Result(boolean ran, List<String> created, List<String> dropped, int deletedVisitorRows) {
     }
 
     /**

@@ -11,7 +11,9 @@ import com.auradev.url_shortener.dto.response.UrlResponse;
 import com.auradev.url_shortener.enums.UrlStatusEnum;
 import com.auradev.url_shortener.exception.AppException;
 import com.auradev.url_shortener.exception.ErrorCode;
+import com.auradev.url_shortener.dto.response.UrlStatsResponse;
 import com.auradev.url_shortener.service.UrlService;
+import com.auradev.url_shortener.service.UrlStatsService;
 import com.auradev.url_shortener.utils.QrCodeGenerator;
 import com.auradev.url_shortener.utils.RateLimitService;
 import com.auradev.url_shortener.utils.SecurityUtils;
@@ -28,7 +30,10 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.format.annotation.DateTimeFormat;
+
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.Set;
 import java.util.UUID;
 
@@ -46,6 +51,7 @@ import java.util.UUID;
  *   <li>PUT    {@code /{shortCode}/password} — Đặt hoặc đổi mật khẩu bảo vệ link</li>
  *   <li>DELETE {@code /{shortCode}/password} — Gỡ mật khẩu</li>
  *   <li>GET    {@code /{shortCode}/qr}   — Mã QR (PNG) của short URL, tham số {@code size} 128-1024</li>
+ *   <li>GET    {@code /{shortCode}/stats} — Thống kê click theo ngày/quốc gia/thiết bị, tham số {@code from}/{@code to}</li>
  *   <li>DELETE {@code /{shortCode}}      — Xoá (mềm)</li>
  * </ul>
  */
@@ -60,6 +66,7 @@ public class UrlController {
     private static final int MAX_KEYWORD_LENGTH = 100;
 
     private final UrlService          urlService;
+    private final UrlStatsService     urlStatsService;
     private final TranslatorUtils     translator;
     private final RateLimitService    rateLimitService;
     private final RateLimitProperties rateLimitProperties;
@@ -199,6 +206,21 @@ public class UrlController {
                 .contentType(MediaType.IMAGE_PNG)
                 .cacheControl(CacheControl.maxAge(Duration.ofHours(1)).cachePrivate())
                 .body(png);
+    }
+
+    /**
+     * Thống kê click của link (chỉ chủ link). {@code from}/{@code to} dạng {@code yyyy-MM-dd}, cả hai đầu
+     * đều tính; mặc định 30 ngày gần nhất, tối đa {@value UrlStatsService#MAX_DAYS} ngày.
+     */
+    @GetMapping("/{shortCode}/stats")
+    public ResponseEntity<ApiResponse<UrlStatsResponse>> stats(
+            @PathVariable String shortCode,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest request
+    ) {
+        UUID userId = SecurityUtils.getAuthenticatedUserId(request);
+        return ResponseEntity.ok(ApiResponse.success(null, urlStatsService.getOwnerStats(userId, shortCode, from, to)));
     }
 
     @DeleteMapping("/{shortCode}")

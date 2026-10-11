@@ -3,7 +3,7 @@
 #
 #    /api/*                              -> app (có rate limit)
 #    /, /login, /register, /dashboard, /settings,
-#    /links/*, /unlock/*, /unavailable/*, /assets/* -> UI (file tĩnh trong /srv, SPA fallback về index.html)
+#    /links/*, /unlock/*, /unavailable/*, /assets/*, /favicon.svg, /robots.txt -> UI (file tĩnh trong /srv, SPA fallback về index.html)
 #    /actuator/*                         -> 404 (không lộ ra internet)
 #    mọi đường dẫn khác (GET /{code})    -> app (redirect, có rate limit)
 #
@@ -79,6 +79,11 @@
 		respond 404
 	}
 
+	# Trình duyệt vẫn tự hỏi /favicon.ico dù trang đã khai báo favicon.svg: trả 404 sạch thay vì index.html (SPA fallback)
+	handle /favicon.ico {
+		respond 404
+	}
+
 	# ===== API =====
 	handle /api/* {
 		# JSON của API rất nhỏ: chặn body lớn bất thường
@@ -116,7 +121,7 @@
 	}
 
 	# ===== UI (SPA) =====
-	@ui path / /index.html /login /register /dashboard /settings /links/* /unlock/* /unavailable/* /assets/* /favicon.ico
+	@ui path / /index.html /login /register /dashboard /settings /links/* /unlock/* /unavailable/* /assets/* /favicon.svg /robots.txt
 	handle @ui {
 		root * /srv
 

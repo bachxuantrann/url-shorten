@@ -1,0 +1,10 @@
+# Trang công khai (trang chủ) cho phép lập chỉ mục; khu vực đăng nhập, API và các trang trạng thái thì không.
+User-agent: *
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /settings
+Disallow: /links/
+Disallow: /unlock/
+Disallow: /unavailable/
+Disallow: /login
+Disallow: /register

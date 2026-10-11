@@ -293,6 +293,11 @@ const en = {
   'error.network': 'Cannot reach the server. Check your connection and try again.',
   'error.unknown': 'Something went wrong. Please try again.',
   'error.rateLimited': 'You are going too fast. Try again in {seconds} seconds.',
+  'error.boundary.title': 'Something went wrong',
+  'error.boundary.text': 'The page hit an unexpected error. A new version of {brand} may have just been released, so reloading usually fixes it.',
+  'error.boundary.reload': 'Reload page',
+  'error.boundary.retry': 'Try again',
+  'meta.description': 'Shorten links, create QR codes, protect them with a password and track every click with {brand}. Free, no sign-up needed.',
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -588,6 +593,11 @@ const vi: Record<MessageKey, string> = {
   'error.network': 'Không kết nối được tới máy chủ. Hãy kiểm tra mạng và thử lại.',
   'error.unknown': 'Có lỗi xảy ra. Hãy thử lại.',
   'error.rateLimited': 'Bạn thao tác quá nhanh. Thử lại sau {seconds} giây.',
+  'error.boundary.title': 'Đã xảy ra lỗi',
+  'error.boundary.text': 'Trang gặp lỗi không mong muốn. Có thể {brand} vừa có bản mới nên tải lại trang thường sẽ khắc phục được.',
+  'error.boundary.reload': 'Tải lại trang',
+  'error.boundary.retry': 'Thử lại',
+  'meta.description': 'Rút gọn link, tạo mã QR, bảo vệ bằng mật khẩu và theo dõi từng lượt click với {brand}. Miễn phí, không cần đăng ký.',
 };
 
 export const messages: Record<Language, Record<MessageKey, string>> = { vi, en };

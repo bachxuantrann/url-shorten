@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { BRAND } from '../brand';
 import { messages, type Language, type MessageKey } from './messages';
 
@@ -35,9 +35,21 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     } catch {
       /* localStorage có thể bị chặn: chỉ mất việc nhớ lựa chọn */
     }
-    document.documentElement.lang = l;
     setLang(l);
   }, []);
+
+  // Giữ <html lang> và mô tả trang khớp với ngôn ngữ đang dùng, kể cả ngay khi tải trang (lang tĩnh trong index.html chỉ là
+  // mặc định). Trình đọc màn hình chọn giọng đọc theo lang; công cụ tìm kiếm và bản xem trước đọc description.
+  useEffect(() => {
+    document.documentElement.lang = language;
+    let meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = 'description';
+      document.head.appendChild(meta);
+    }
+    meta.content = messages[language]['meta.description'].replaceAll('{brand}', BRAND.name);
+  }, [language]);
 
   const value = useMemo<I18nValue>(
     () => ({

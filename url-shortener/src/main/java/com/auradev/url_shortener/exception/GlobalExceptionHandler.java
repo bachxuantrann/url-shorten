@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
@@ -183,6 +184,22 @@ public class GlobalExceptionHandler {
         String translatedMessage = translator.toLocale(errorCode.getMessageKey());
 
         log.debug("Type mismatch: param={}, value={}", ex.getName(), ex.getValue());
+        return new ResponseEntity<>(
+                ApiResponse.error(errorCode, translatedMessage),
+                HttpStatus.BAD_REQUEST
+        );
+    }
+
+    /**
+     * Body không đọc được: JSON sai cú pháp, hoặc giá trị không hợp lệ cho field (ví dụ enum lạ). Là lỗi của
+     * client nên 400, không phải 500; không trả chi tiết parser ra ngoài.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnreadableBody(HttpMessageNotReadableException ex) {
+        ErrorCode errorCode      = ErrorCode.VALIDATION_FAILED;
+        String translatedMessage = translator.toLocale(errorCode.getMessageKey());
+
+        log.debug("Unreadable request body: {}", ex.getMessage());
         return new ResponseEntity<>(
                 ApiResponse.error(errorCode, translatedMessage),
                 HttpStatus.BAD_REQUEST

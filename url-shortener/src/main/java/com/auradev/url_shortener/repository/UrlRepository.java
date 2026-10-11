@@ -124,4 +124,21 @@ public interface UrlRepository extends JpaRepository<Url, Long> {
             @Param("pattern") String pattern,
             Pageable pageable
     );
+
+    /**
+     * Danh sách link của <b>mọi</b> người dùng (kể cả link ẩn danh) cho admin, không gồm link đã xoá.
+     * Từ khoá khớp URL đích, short code hoặc người tạo ({@code createdBy}: username, hoặc {@code anonymous}).
+     *
+     * @param pattern mẫu LIKE từ {@code LikePatterns.contains}
+     */
+    @Query("SELECT u FROM Url u WHERE u.status <> com.auradev.url_shortener.enums.UrlStatusEnum.DELETED " +
+            "AND (:status IS NULL OR u.status = :status) " +
+            "AND (LOWER(u.originalUrl) LIKE :pattern ESCAPE '!' " +
+            "  OR LOWER(u.shortCode) LIKE :pattern ESCAPE '!' " +
+            "  OR LOWER(u.createdBy) LIKE :pattern ESCAPE '!')")
+    Page<Url> findAllForAdmin(
+            @Param("status") UrlStatusEnum status,
+            @Param("pattern") String pattern,
+            Pageable pageable
+    );
 }

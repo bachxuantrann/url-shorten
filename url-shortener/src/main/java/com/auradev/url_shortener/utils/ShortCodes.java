@@ -26,7 +26,7 @@ public final class ShortCodes {
             "static", "assets", "favicon", "robots", "login", "logout", "register",
             "auth", "users", "urls", "docs", "console", "internal", "public",
             // Route của UI (frontend) dùng chung namespace với short code
-            "unlock", "dashboard", "links", "settings", "profile"
+            "unlock", "dashboard", "links", "settings", "profile", "report", "overview"
     );
 
     private ShortCodes() {

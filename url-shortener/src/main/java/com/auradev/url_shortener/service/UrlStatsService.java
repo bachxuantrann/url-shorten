@@ -1,5 +1,6 @@
 package com.auradev.url_shortener.service;
 
+import com.auradev.url_shortener.dto.response.StatsOverviewResponse;
 import com.auradev.url_shortener.dto.response.UrlStatsResponse;
 
 import java.time.LocalDate;
@@ -28,4 +29,11 @@ public interface UrlStatsService {
 
     /** Thống kê link của bất kỳ ai (kể cả link ẩn danh); link đã xoá coi như không tồn tại. */
     UrlStatsResponse getAdminStats(String shortCode, LocalDate from, LocalDate to);
+
+    /**
+     * Tổng quan của mọi link chưa xoá của người dùng: số link theo trạng thái, tổng click theo ngày, link nhiều
+     * click nhất và phân rã. Cùng quy tắc khoảng ngày như {@link #getOwnerStats}. Số câu lệnh SQL cố định (bốn),
+     * không phụ thuộc số link.
+     */
+    StatsOverviewResponse getOverview(UUID userId, LocalDate from, LocalDate to);
 }

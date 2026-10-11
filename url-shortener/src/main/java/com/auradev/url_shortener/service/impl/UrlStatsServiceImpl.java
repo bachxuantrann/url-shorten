@@ -1,5 +1,9 @@
 package com.auradev.url_shortener.service.impl;
 
+import com.auradev.url_shortener.config.ShortenerProperties;
+import com.auradev.url_shortener.dto.response.StatsOverviewResponse;
+import com.auradev.url_shortener.dto.response.StatsOverviewResponse.LinkCounts;
+import com.auradev.url_shortener.dto.response.StatsOverviewResponse.TopLink;
 import com.auradev.url_shortener.dto.response.UrlStatsResponse;
 import com.auradev.url_shortener.dto.response.UrlStatsResponse.BreakdownItem;
 import com.auradev.url_shortener.dto.response.UrlStatsResponse.DailyStat;
@@ -12,6 +16,7 @@ import com.auradev.url_shortener.repository.UrlRepository;
 import com.auradev.url_shortener.repository.UrlStatsRepository;
 import com.auradev.url_shortener.repository.UrlStatsRepository.BreakdownRow;
 import com.auradev.url_shortener.repository.UrlStatsRepository.DailyRow;
+import com.auradev.url_shortener.repository.UrlStatsRepository.StatusCountRow;
 import com.auradev.url_shortener.service.UrlStatsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -19,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -29,8 +35,11 @@ import java.util.UUID;
 import java.util.function.ToLongFunction;
 
 /**
- * Triển khai {@link UrlStatsService}. Mỗi lần xem là ba câu lệnh cố định: một để tìm link, một đọc
- * {@code url_daily_stats}, một phân rã trên {@code url_clicks}; không phụ thuộc số ngày hay số click.
+ * Triển khai {@link UrlStatsService}. Số câu lệnh SQL cố định, không phụ thuộc số ngày, số click hay số link:
+ * <ul>
+ *   <li>một link: ba câu (tìm link, đọc {@code url_daily_stats}, phân rã trên {@code url_clicks});</li>
+ *   <li>tổng quan tài khoản: bốn câu (số link theo trạng thái, tổng theo ngày, link nhiều click nhất, phân rã).</li>
+ * </ul>
  */
 @Service
 @RequiredArgsConstructor
@@ -39,11 +48,15 @@ public class UrlStatsServiceImpl implements UrlStatsService {
     /** Số phần tử tối đa của mỗi bảng phân rã (quốc gia, trình duyệt, hệ điều hành). */
     static final int TOP_N = 10;
 
+    /** Số link nhiều click nhất trong tổng quan tài khoản. */
+    static final int TOP_LINKS = 5;
+
     private static final String UNKNOWN = "Unknown";
 
-    private final UrlRepository      urlRepository;
-    private final UrlStatsRepository statsRepository;
-    private final Clock              clock;
+    private final UrlRepository       urlRepository;
+    private final UrlStatsRepository  statsRepository;
+    private final ShortenerProperties shortenerProperties;
+    private final Clock               clock;
 
     @Override
     @Transactional(readOnly = true)
@@ -62,51 +75,119 @@ public class UrlStatsServiceImpl implements UrlStatsService {
         return build(url, from, to);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public StatsOverviewResponse getOverview(UUID userId, LocalDate fromParam, LocalDate toParam) {
+        Range range = resolveRange(fromParam, toParam);
+
+        List<StatusCountRow> statusRows = statsRepository.countLinksByStatus(userId, LocalDateTime.now(clock));
+        Daily daily = fillDaily(statsRepository.findDailyForUser(userId, range.from(), range.to()), range);
+        List<UrlStatsRepository.TopLinkRow> topRows =
+                statsRepository.findTopLinksForUser(userId, range.from(), range.to(), TOP_LINKS);
+        List<BreakdownRow> breakdowns = statsRepository.findBreakdownsForUser(
+                userId, range.from().atStartOfDay(), range.to().plusDays(1).atStartOfDay());
+
+        String baseUrl = trimmedBaseUrl();
+        return StatsOverviewResponse.builder()
+                .from(range.from())
+                .to(range.to())
+                .links(linkCounts(statusRows))
+                .totals(daily.totals())
+                .daily(daily.days())
+                .topLinks(topRows.stream()
+                        .map(r -> TopLink.builder()
+                                .shortCode(r.shortCode())
+                                .shortUrl(baseUrl + "/" + r.shortCode())
+                                .originalUrl(r.originalUrl())
+                                .clicks(r.clicks())
+                                .build())
+                        .toList())
+                .countries(top(breakdowns, "country", BreakdownRow::humanClicks))
+                .devices(top(breakdowns, "device", BreakdownRow::clicks))
+                .browsers(top(breakdowns, "browser", BreakdownRow::humanClicks))
+                .operatingSystems(top(breakdowns, "os", BreakdownRow::humanClicks))
+                .build();
+    }
+
     // ===========================
     //  PRIVATE HELPERS
     // ===========================
 
     private UrlStatsResponse build(Url url, LocalDate fromParam, LocalDate toParam) {
+        Range range = resolveRange(fromParam, toParam);
+        Daily daily = fillDaily(statsRepository.findDaily(url.getId(), range.from(), range.to()), range);
+
+        List<BreakdownRow> breakdowns = statsRepository.findBreakdowns(
+                url.getId(), range.from().atStartOfDay(), range.to().plusDays(1).atStartOfDay());
+
+        return UrlStatsResponse.builder()
+                .shortCode(url.getShortCode())
+                .from(range.from())
+                .to(range.to())
+                .totals(daily.totals())
+                .daily(daily.days())
+                .countries(top(breakdowns, "country", BreakdownRow::humanClicks))
+                .devices(top(breakdowns, "device", BreakdownRow::clicks))
+                .browsers(top(breakdowns, "browser", BreakdownRow::humanClicks))
+                .operatingSystems(top(breakdowns, "os", BreakdownRow::humanClicks))
+                .build();
+    }
+
+    private record Range(LocalDate from, LocalDate to) {
+    }
+
+    private record Daily(List<DailyStat> days, Totals totals) {
+    }
+
+    /** Giá trị mặc định (30 ngày gần nhất) và kiểm tra khoảng: không đảo ngược, tối đa {@value #MAX_DAYS} ngày. */
+    private Range resolveRange(LocalDate fromParam, LocalDate toParam) {
         LocalDate to = toParam != null ? toParam : LocalDate.now(clock);
         LocalDate from = fromParam != null ? fromParam : to.minusDays(DEFAULT_DAYS - 1L);
         if (from.isAfter(to) || ChronoUnit.DAYS.between(from, to) + 1 > MAX_DAYS) {
             throw new AppException(ErrorCode.INVALID_STATS_RANGE, MAX_DAYS);
         }
+        return new Range(from, to);
+    }
 
+    /** Điền 0 cho ngày không có click để client vẽ biểu đồ liên tục, và cộng tổng của cả khoảng. */
+    private Daily fillDaily(List<DailyRow> rows, Range range) {
         Map<LocalDate, DailyRow> byDate = new HashMap<>();
-        for (DailyRow row : statsRepository.findDaily(url.getId(), from, to)) {
+        for (DailyRow row : rows) {
             byDate.put(row.date(), row);
         }
 
-        // Điền 0 cho ngày không có click để client vẽ biểu đồ liên tục
-        List<DailyStat> daily = new ArrayList<>();
+        List<DailyStat> days = new ArrayList<>();
         long clicks = 0;
         long botClicks = 0;
         long uniqueVisitors = 0;
-        for (LocalDate day = from; !day.isAfter(to); day = day.plusDays(1)) {
+        for (LocalDate day = range.from(); !day.isAfter(range.to()); day = day.plusDays(1)) {
             DailyRow row = byDate.get(day);
             long dayClicks = row == null ? 0 : row.clicks();
             long dayBots = row == null ? 0 : row.botClicks();
             long dayVisitors = row == null ? 0 : row.uniqueVisitors();
-            daily.add(new DailyStat(day, dayClicks, dayBots, dayVisitors));
+            days.add(new DailyStat(day, dayClicks, dayBots, dayVisitors));
             clicks += dayClicks;
             botClicks += dayBots;
             uniqueVisitors += dayVisitors;
         }
+        return new Daily(days, new Totals(clicks, botClicks, uniqueVisitors));
+    }
 
-        List<BreakdownRow> breakdowns = statsRepository.findBreakdowns(
-                url.getId(), from.atStartOfDay(), to.plusDays(1).atStartOfDay());
-
-        return UrlStatsResponse.builder()
-                .shortCode(url.getShortCode())
-                .from(from)
-                .to(to)
-                .totals(new Totals(clicks, botClicks, uniqueVisitors))
-                .daily(daily)
-                .countries(top(breakdowns, "country", BreakdownRow::humanClicks))
-                .devices(top(breakdowns, "device", BreakdownRow::clicks))
-                .browsers(top(breakdowns, "browser", BreakdownRow::humanClicks))
-                .operatingSystems(top(breakdowns, "os", BreakdownRow::humanClicks))
+    private LinkCounts linkCounts(List<StatusCountRow> rows) {
+        Map<String, Long> byStatus = new HashMap<>();
+        for (StatusCountRow row : rows) {
+            byStatus.put(row.status(), row.count());
+        }
+        long active = byStatus.getOrDefault(UrlStatusEnum.ACTIVE.name(), 0L);
+        long disabled = byStatus.getOrDefault(UrlStatusEnum.DISABLED.name(), 0L);
+        long expired = byStatus.getOrDefault(UrlStatusEnum.EXPIRED.name(), 0L);
+        long blocked = byStatus.getOrDefault(UrlStatusEnum.BLOCKED.name(), 0L);
+        return LinkCounts.builder()
+                .total(active + disabled + expired + blocked)
+                .active(active)
+                .disabled(disabled)
+                .expired(expired)
+                .blocked(blocked)
                 .build();
     }
 
@@ -123,5 +204,10 @@ public class UrlStatsServiceImpl implements UrlStatsService {
                         .thenComparing(BreakdownItem::getName))
                 .limit(TOP_N)
                 .toList();
+    }
+
+    private String trimmedBaseUrl() {
+        String baseUrl = shortenerProperties.getBaseUrl();
+        return baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
     }
 }

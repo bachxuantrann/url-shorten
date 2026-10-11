@@ -2,18 +2,26 @@ package com.auradev.url_shortener.service.impl;
 
 import com.auradev.url_shortener.config.ShortenerProperties;
 import com.auradev.url_shortener.dto.response.AdminUrlResponse;
+import com.auradev.url_shortener.dto.response.PageResponse;
 import com.auradev.url_shortener.entity.Url;
+import com.auradev.url_shortener.enums.AbuseReportStatusEnum;
 import com.auradev.url_shortener.enums.UrlStatusEnum;
 import com.auradev.url_shortener.exception.AppException;
 import com.auradev.url_shortener.exception.ErrorCode;
 import com.auradev.url_shortener.mapper.UrlMapper;
 import com.auradev.url_shortener.repository.UrlRepository;
+import com.auradev.url_shortener.service.AbuseReportService;
 import com.auradev.url_shortener.service.AdminUrlService;
+import com.auradev.url_shortener.utils.LikePatterns;
 import com.auradev.url_shortener.utils.UrlCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Clock;
+import java.time.LocalDateTime;
 
 /**
  * Triển khai {@link AdminUrlService}. Cập nhật qua entity nên auditing ghi {@code updatedBy} là admin
@@ -28,6 +36,15 @@ public class AdminUrlServiceImpl implements AdminUrlService {
     private final UrlMapper           urlMapper;
     private final UrlCacheService     urlCacheService;
     private final ShortenerProperties shortenerProperties;
+    private final Clock               clock;
+    private final AbuseReportService  abuseReportService;
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<AdminUrlResponse> list(String keyword, UrlStatusEnum status, Pageable pageable) {
+        String pattern = LikePatterns.contains(keyword);
+        return PageResponse.of(urlRepository.findAllForAdmin(status, pattern, pageable).map(this::toResponse));
+    }
 
     @Override
     @Transactional(readOnly = true)
@@ -43,6 +60,8 @@ public class AdminUrlServiceImpl implements AdminUrlService {
         url.setStatus(UrlStatusEnum.BLOCKED);
         url.setBlockedReason(reason.trim());
         urlCacheService.evictAfterCommit(shortCode);
+        // Chặn chính là cách xử lý một báo cáo lạm dụng: các báo cáo đang mở của link coi như đã xử lý
+        abuseReportService.closeForUrl(url.getId(), AbuseReportStatusEnum.RESOLVED);
 
         log.info("[ADMIN] URL blocked: shortCode={}, reason={}", shortCode, reason);
         return toResponse(urlRepository.save(url));
@@ -71,9 +90,16 @@ public class AdminUrlServiceImpl implements AdminUrlService {
                 .orElseThrow(() -> new AppException(ErrorCode.URL_NOT_FOUND, shortCode));
     }
 
+    /** Link ACTIVE đã quá hạn nhưng job chưa kịp chuyển được báo là EXPIRED, khớp với kết quả redirect (410). */
     private AdminUrlResponse toResponse(Url url) {
         String baseUrl = shortenerProperties.getBaseUrl();
         String trimmed = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-        return urlMapper.toAdminUrlResponse(url, trimmed);
+        AdminUrlResponse response = urlMapper.toAdminUrlResponse(url, trimmed);
+        if (url.getStatus() == UrlStatusEnum.ACTIVE
+                && url.getExpiresAt() != null
+                && !url.getExpiresAt().isAfter(LocalDateTime.now(clock))) {
+            response.setStatus(UrlStatusEnum.EXPIRED);
+        }
+        return response;
     }
 }

@@ -34,11 +34,23 @@ public class VisitorHasher {
         this.key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), ALGORITHM);
     }
 
+    /**
+     * Băm IP của người báo cáo lạm dụng. Khác {@link #hash}: không có ngày, vì cần nhận ra cùng một người báo
+     * cùng một link ở các ngày khác nhau; tiền tố {@code report|} để giá trị này không trùng với giá trị đếm
+     * khách truy cập.
+     */
+    public String reporterHash(String ip) {
+        return digest("report|" + (ip == null ? "" : ip));
+    }
+
     public String hash(String ip, String userAgent, LocalDate day) {
+        return digest(day + "|" + (ip == null ? "" : ip) + "|" + (userAgent == null ? "" : userAgent));
+    }
+
+    private String digest(String data) {
         try {
             Mac mac = Mac.getInstance(ALGORITHM);
             mac.init(key);
-            String data = day + "|" + (ip == null ? "" : ip) + "|" + (userAgent == null ? "" : userAgent);
             byte[] digest = mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest).substring(0, HEX_LENGTH);
         } catch (GeneralSecurityException e) {

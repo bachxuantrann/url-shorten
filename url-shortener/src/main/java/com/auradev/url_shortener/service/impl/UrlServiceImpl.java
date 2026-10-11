@@ -12,6 +12,7 @@ import com.auradev.url_shortener.exception.ErrorCode;
 import com.auradev.url_shortener.mapper.UrlMapper;
 import com.auradev.url_shortener.repository.UrlRepository;
 import com.auradev.url_shortener.service.UrlService;
+import com.auradev.url_shortener.utils.LikePatterns;
 import com.auradev.url_shortener.utils.QrCodeGenerator;
 import com.auradev.url_shortener.utils.ShortCodeGenerator;
 import com.auradev.url_shortener.utils.ShortCodes;
@@ -31,7 +32,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -373,14 +373,7 @@ public class UrlServiceImpl implements UrlService {
      * Từ khoá rỗng cho ra {@code "%"} (khớp tất cả).
      */
     private String toLikePattern(String keyword) {
-        if (keyword == null || keyword.isBlank()) {
-            return "%";
-        }
-        String escaped = keyword.trim().toLowerCase(Locale.ROOT)
-                .replace("!", "!!")
-                .replace("%", "!%")
-                .replace("_", "!_");
-        return "%" + escaped + "%";
+        return LikePatterns.contains(keyword);
     }
 
     /**

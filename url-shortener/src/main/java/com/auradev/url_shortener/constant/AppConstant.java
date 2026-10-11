@@ -13,6 +13,7 @@ public interface AppConstant {
     String API_USERS          = API_PREFIX + "/users";
     String API_ADMIN          = API_PREFIX + "/admin";
     String API_URLS           = API_PREFIX + "/urls";
+    String API_STATS          = API_PREFIX + "/stats";
     String API_PUBLIC         = API_PREFIX + "/public";
 
     // ===== JWT =====

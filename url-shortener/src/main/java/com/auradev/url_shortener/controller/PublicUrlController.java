@@ -10,6 +10,7 @@ import com.auradev.url_shortener.dto.response.UnlockLinkResponse;
 import com.auradev.url_shortener.dto.response.UrlResponse;
 import com.auradev.url_shortener.exception.AppException;
 import com.auradev.url_shortener.exception.ErrorCode;
+import com.auradev.url_shortener.service.ClickPublisher;
 import com.auradev.url_shortener.service.RedirectService;
 import com.auradev.url_shortener.service.UrlService;
 import com.auradev.url_shortener.utils.ClientIpUtils;
@@ -58,6 +59,7 @@ public class PublicUrlController {
     private final TranslatorUtils     translator;
     private final RateLimitService    rateLimitService;
     private final RateLimitProperties rateLimitProperties;
+    private final ClickPublisher      clickPublisher;
 
     @PostMapping
     public ResponseEntity<ApiResponse<UrlResponse>> create(
@@ -93,6 +95,8 @@ public class PublicUrlController {
         rateLimitService.check("unlock-link", shortCode, rateLimitProperties.getUnlockPerLink());
 
         String target = redirectService.unlockTarget(shortCode, body.getPassword());
+        // Unlock đúng mật khẩu là lượt truy cập thành công của link có mật khẩu (GET /{code} chỉ trả 403)
+        clickPublisher.publish(shortCode, request);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(ApiResponse.success(null, new UnlockLinkResponse(target)));

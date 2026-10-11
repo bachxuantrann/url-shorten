@@ -82,6 +82,20 @@ public interface UrlRepository extends JpaRepository<Url, Long> {
             @Param("updatedBy") String updatedBy
     );
 
+    /** Cặp (id, short code) của một link, dùng để đổi mã sang id mà không nạp cả entity. */
+    interface IdAndCode {
+        Long getId();
+
+        String getShortCode();
+    }
+
+    /**
+     * Đổi một lô short code sang id bằng <b>một</b> query (mọi trạng thái, kể cả link đã xoá mềm,
+     * vì click đến trước lúc xoá vẫn phải được ghi nhận).
+     */
+    @Query("SELECT u.id AS id, u.shortCode AS shortCode FROM Url u WHERE u.shortCode IN :codes")
+    List<IdAndCode> findIdsByShortCodeIn(@Param("codes") java.util.Collection<String> codes);
+
     /** Mã (sinh tự động hoặc alias) đã được dùng chưa, kể cả link đã xoá (mã không bao giờ được cấp lại). */
     boolean existsByShortCode(String shortCode);
 

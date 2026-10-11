@@ -54,9 +54,16 @@ spring:
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
       acks: all
       retries: 3
+      properties:
+        # Producer không được chặn lâu khi broker chết (mặc định max.block.ms = 60s); mất event còn hơn
+        # làm chậm redirect. delivery.timeout.ms phải >= linger.ms + request.timeout.ms.
+        max.block.ms: 500
+        request.timeout.ms: 2000
+        delivery.timeout.ms: 5000
     consumer:
       group-id: url-shortener-group
       auto-offset-reset: earliest
+      max-poll-records: 500       # kích thước lô tối đa của consumer click
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
@@ -84,6 +91,18 @@ app:
     max-links-per-user: 1000      # số link (chưa xoá) tối đa mỗi user
     block-private-targets: true   # chặn URL đích localhost/IP nội bộ/tên miền nội bộ
     own-hosts: []                 # host phụ của chính dịch vụ (ngoài host của base-url), cấm làm URL đích
+
+  click:
+    topic: url-clicks
+    partitions: ${CLICK_TOPIC_PARTITIONS:3}
+    replicas: ${CLICK_TOPIC_REPLICAS:1}
+    consumer-concurrency: ${CLICK_CONSUMER_CONCURRENCY:1}
+    visitor-secret: ${CLICK_VISITOR_SECRET}
+    geoip-database: ${GEOIP_DATABASE:}         # đường dẫn file GeoLite2-Country.mmdb; để trống = không ghi quốc gia
+    partition-job-enabled: true
+    partition-job-interval: PT6H
+    partition-months-ahead: 3
+    retention-months: 13
 
   rate-limit:
     anonymous-create: { limit: 10, window: PT1H }    # theo IP: tối đa 10 link ẩn danh mỗi giờ

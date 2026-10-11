@@ -83,6 +83,20 @@ Time: inject the `Clock` bean (`AppConfig`) and use `LocalDateTime.now(clock)` f
 - **Unlock brute-force limits** (`RateLimitProperties`, checked in `PublicUrlController` in this order): per IP 30/15 min, per (link, IP) 10/15 min, per link 100/h; exceeding gives 429 + `Retry-After`. The code format is validated before any limiter key is created so invented codes cannot create unbounded Redis keys. Known trade-off: exhausting the per-link budget (needs many IPs) delays legitimate unlocks of that link for up to an hour.
 - **QR codes:** `GET /api/v1/urls/{code}/qr?size=` (owner only, 404 otherwise) returns a PNG of `{base-url}/{code}` generated on the fly by `QrCodeGenerator` (ZXing core, error correction M, quiet zone 4, size clamped to 128-1024, default 320, `Cache-Control: private, max-age=3600`). Nothing is stored. Tests decode the PNG with ZXing (`support/QrDecoder`) to prove it scans.
 
+### Click tracking (Phase 6)
+
+Flow: successful `GET /{code}` (`RedirectController`) or correct `POST /api/v1/public/urls/{code}/unlock` (`PublicUrlController`) -> `ClickPublisher.publish` -> Kafka topic `url-clicks` (key = `shortCode`) -> `ClickEventConsumer` (batch) -> `ClickIngestService.ingest` -> table `url_clicks` + `urls.click_count`. Never emitted for 403/404/410 (including `ERR_408`) or for `HEAD` requests.
+
+- **Producer never blocks a redirect.** `KafkaClickPublisher` reads IP/User-Agent/country header on the request thread, then hands the send to the bounded `clickPublishExecutor` (`KafkaConfig`, `AbortPolicy`): a full queue drops the event (`droppedCount()`), a failed send is counted (`failedCount()`), nothing is thrown. The producer also has `max.block.ms=500`, `request.timeout.ms=2000`, `delivery.timeout.ms=5000` in the profile yaml. `KafkaClickPublisherTest` proves it against a dead port.
+- **`spring-boot-starter-kafka`** replaced plain `spring-kafka` in `pom.xml`: without it Boot 4 had no Kafka auto-configuration and every `spring.kafka.*` property was silently ignored. `ClickEvent` is serialized to a JSON string with the app's Jackson 2 `ObjectMapper` (String (de)serializers stay).
+- **Topics** `url-clicks` and `url-clicks.DLT` are declared as `NewTopic` beans (`app.click.partitions`, `replicas`). The broker auto-creates single-partition topics, so do not rely on that.
+- **Privacy:** no raw IP anywhere (not in Kafka, not in the DB). `VisitorHasher` = `HMAC-SHA256(secret, day|ip|userAgent)` cut to 32 hex chars (`app.click.visitor-secret`, env `CLICK_VISITOR_SECRET`, required in prod). Day is in the input, so "unique visitor" only means unique within one day. Changing the secret only breaks unique counts once (unlike `code-secret`).
+- **Enrichment:** device/browser/OS are parsed in the consumer by `UserAgentParser` (uap-java for browser and OS, normalized to one name, e.g. "Chrome Mobile" -> `Chrome`; device type MOBILE/TABLET/DESKTOP/BOT is derived by our own rules because uap-java has none; bots are stored as device `BOT`, not dropped, and still counted in `click_count`). Country comes from `GeoIpService` (MaxMind GeoLite2-Country `.mmdb`, path `app.click.geoip-database` / env `GEOIP_DATABASE`, empty = country null, set-but-missing file = startup failure, read once at startup so restart after updating the file). The lookup runs in the **producer** on the request thread (an in-memory file read) because events carry no IP; only the 2-letter code goes into the event. Client headers such as `CF-IPCountry` are ignored. The `.mmdb` file is not in the repo (needs a free MaxMind account and a mount in the container); `GeoIpServiceTest` runs the real lookup only when env `GEOIP_TEST_DB` points to a file.
+- **Idempotent batch write:** `UrlClickRepository.insertBatch` is one SQL statement per batch (arrays `unnest`ed, `INSERT ... ON CONFLICT DO NOTHING RETURNING url_id`, then `UPDATE urls SET click_count = click_count + n` from the returned rows), so a redelivered event is neither stored nor counted twice. PK is `(event_id, clicked_at)` and `clicked_at` is the event's own time. `ClickIngestServiceImpl` resolves codes to ids with one `IN (...)` query (soft-deleted links still resolve; unknown codes are logged and skipped). This statement does **not** touch `urls.updated_at`/`updated_by` on purpose (a click is not an edit of the link).
+- **Errors:** malformed messages (bad JSON, missing fields, eventId not a UUID) go straight to `url-clicks.DLT` and are skipped; infrastructure errors (DB down) bubble up to `DefaultErrorHandler` (exponential back-off, max 15 s) and then the whole batch goes to the DLT (`DeadLetterPublishingRecoverer`). Nothing consumes the DLT yet.
+- **Partitions:** `url_clicks` is range-partitioned by month (`url_clicks_yYYYYmMM`) with a `url_clicks_default` partition so an out-of-range click is never lost. V7 creates this month + 3 more; `ClickPartitionJob` (every `app.click.partition-job-interval`, default `PT6H`, surefire sets `PT24H`) calls `ClickPartitionService.maintain`: creates `partition-months-ahead` months and drops partitions older than `retention-months` (13; `<= 0` keeps all). Multi-instance safe through `pg_try_advisory_xact_lock`. If the default partition already holds rows of a month, Postgres refuses to create that month's partition (logged, other months still proceed).
+- Tests: `ClickTrackingIntegrationTest`, `ClickPartitionIntegrationTest` (real Postgres/Redis/Kafka), `KafkaClickPublisherTest`, `UserAgentParserTest`, `VisitorHasherTest`. Kafka-listener tests use Awaitility and unique short codes; "was not recorded" assertions wait 1.5 s after a sentinel click.
+
 ### Errors and i18n
 
 All errors go through `AppException(ErrorCode, args...)`. `ErrorCode` holds the code (`ERR_xxx` ranges documented in the enum), message key, and HTTP status. `GlobalExceptionHandler` and the 401/403 handlers in `SecurityConfig` both render the same `ApiResponse` shape, with messages resolved by `TranslatorUtils` from `src/main/resources/i18n/message.properties` and `message_vi.properties`. A new error needs an `ErrorCode` entry and a key in both property files.
@@ -102,7 +116,7 @@ All errors go through `AppException(ErrorCode, args...)`. `ErrorCode` holds the 
 ## Gotchas
 
 - `.env.dev` and `.env.prod` are intentionally tracked (public repo, placeholder values only). Real secrets are injected at deploy time, so never put real secrets in these files.
-- `spring-kafka` and `spring-boot-starter-websocket` are declared and Kafka is configured, but no code uses them yet. No click tracking exists yet (Phase 6).
+- `spring-boot-starter-websocket` is declared but no code uses it yet. Kafka is used only for click tracking (see Click tracking). Nothing reads the dead-letter topic `url-clicks.DLT` yet.
 - The dev profile has default JWT secret and admin credentials in `application-dev.yaml`; they must be overridden via env vars in prod.
 
 ## Working agreements and open items
@@ -114,7 +128,7 @@ Handoff notes so a new session can continue without the previous conversation.
 - **Reply in Vietnamese.** Code comments and Javadoc are Vietnamese too (this file is English).
 - **Config goes in the profile files** (`application-dev.yaml` / `application-prod.yaml`), not in `application.yaml` (Flyway flags, shortener/rate-limit settings, `server.forward-headers-strategy`). The base file only holds truly shared things (app name, i18n, Jackson, server port).
 - **After each phase, report what was done**: what changed and why, tests added and the total, deviations from this plan, caveats, and what is **not** verified (for example Bruno requests or the owner's running IDE app, which you cannot exercise). Say plainly when something failed or was skipped.
-- **Verify yourself**: run `./mvnw test` (a few minutes, containers start first) and prove claims with tests instead of reasoning, e.g. count SQL statements with Hibernate statistics for N+1 questions. Baseline: **351 tests green at the end of Phase 5** (the link-password tests are slow because of BCrypt cost 12).
+- **Verify yourself**: run `./mvnw test` (a few minutes, containers start first) and prove claims with tests instead of reasoning, e.g. count SQL statements with Hibernate statistics for N+1 questions. Baseline: **414 tests (413 run + 1 skipped without `GEOIP_TEST_DB`) at the end of Phase 6** (351 at the end of Phase 5) (the link-password tests are slow because of BCrypt cost 12).
 - **Do not commit or push** unless asked; the owner reviews the diff and commits between phases. Do not run destructive commands against the dev stack (`docker compose down -v`, dropping tables) without asking: the dev Postgres is the owner's.
 - **The owner edits files too** (their Bruno app rewrites request files and pastes tokens; they replaced the dev `code-secret` default). Treat on-disk changes as deliberate and never revert them.
 - Environment notes: repo files may be CRLF, so scripts that edit them must preserve line endings; very long Bash commands with many heredocs fail to parse, so write files with the file tools; Python on Windows cannot open paths over 260 characters, so use the short scratchpad path for scripts. Maven's incremental compile can keep **stale test classes** after you change a main constructor or signature and then report BUILD SUCCESS: use `./mvnw clean test-compile` after such changes.
@@ -127,41 +141,11 @@ Handoff notes so a new session can continue without the previous conversation.
 
 - **Malformed JSON request body probably returns 500** instead of 400, and unknown routes for authenticated users probably return 500 too: `GlobalExceptionHandler` has no handler for `HttpMessageNotReadableException` / `NoResourceFoundException`, so they fall into the generic `Exception` handler. Believed from reading the code, not tested.
 - There is **no admin API to list or search all links** (an admin can only fetch one by short code).
-- `urls.click_count` stays 0 until click tracking (Phase 6).
+- No stats API yet and no `url_daily_stats` (Phase 7); `urls.click_count` is maintained by the click consumer but there is no reconciliation job against `url_clicks`.
 - `AppConstant.PUBLIC_ENDPOINTS` lists `/swagger-ui/**` and `/v3/api-docs/**` but springdoc is not a dependency, so those paths return 404.
 - `UserController` still has its own `getAuthenticatedUserId` helper (newer code uses `SecurityUtils`), and `UrlApiIntegrationTest` has private HTTP helpers that duplicate `support/ApiClient`.
 - `UrlService.createAnonymous` takes the full `CreateUrlRequest` and ignores its alias/password; a dedicated command type would be cleaner.
 - Prod env: `.env.prod` still has `CHANGE_ME_*` placeholders. `APP_BASE_URL` and `SHORT_CODE_SECRET` must be real values before deploying, and `SHORT_CODE_SECRET` must never change afterwards.
-
-### Phase 6 design brief (click tracking via Kafka)
-
-**Start of the next session:** run `git status` (the owner commits between phases), then `./mvnw clean test` and expect **351 green** before touching anything. Then **ask the owner the open decisions below before writing code**, and build in small verified steps (migration + partition job, producer, consumer, tests) rather than one big change.
-
-**Verified starting state (commit `b043aa7`):**
-
-- `spring-kafka` is a dependency but **no Kafka code exists in `src/main`**. Kafka config lives only in `application-dev/prod.yaml`: String key/value (de)serializers, `acks: all`, `retries: 3`, consumer `group-id: url-shortener-group`, `auto-offset-reset: earliest`. Dev and prod compose run one KRaft broker with `KAFKA_AUTO_CREATE_TOPICS_ENABLE=true` and replication factor 1, so a topic created implicitly would get a single partition: **declare topics explicitly with `NewTopic` beans** (partitions, replicas) instead.
-- `TestcontainersConfiguration` already starts Kafka (`ConfluentKafkaContainer`, bootstrap servers wired by a `DynamicPropertyRegistrar`) but nothing uses it yet.
-- The app's `ObjectMapper` bean is **Jackson 2** (`com.fasterxml`, `JavaTimeModule`, `JacksonConfig`). Because the existing config uses String serializers, serialize `ClickEvent` to a JSON string with that mapper instead of Spring Kafka's JSON serializers (Boot 4 may expect Jackson 3 classes there; not verified).
-- Hook points: `RedirectController.redirect` (after `resolveTarget` succeeds) and `PublicUrlController.unlock` (after `unlockTarget` succeeds). The client IP comes from `ClientIpUtils.resolve`. The redirect cache does not carry the link's database id.
-
-**Design decisions already made (see also the plan below):** emit only on a **successful** redirect or unlock (never on 403/404/410, including `ERR_408`); Kafka message key = `shortCode` (per-link ordering); every event has a unique `eventId` and a timestamp **set when the event is created**; consumer is idempotent and batched; failures must never break a redirect.
-
-**Pitfalls to design around (found by thinking this through, not yet tested):**
-
-1. **A dead broker can block redirects.** `KafkaTemplate.send` blocks up to `max.block.ms` (60 s by default) while metadata is unavailable. Set a small `max.block.ms` and `delivery.timeout.ms` for this producer, send asynchronously, count/log failures in the callback, and test with the broker stopped (use a dedicated container or a producer pointed at a closed port, not the shared one).
-2. **Idempotency vs partitioning.** On a partitioned table every unique constraint must include the partition key, so `event_id UNIQUE` becomes `UNIQUE (event_id, clicked_at)` and the primary key `(id, clicked_at)`. Redelivery only hits the same unique key if `clicked_at` is the **event's** timestamp, never the consumer's `now()`.
-3. **Count only rows actually inserted.** Use `INSERT ... ON CONFLICT DO NOTHING RETURNING url_id` and derive `urls.click_count` / `url_daily_stats` deltas from the returned rows, never from the batch size, or redelivered events are counted twice. Aggregate per link and apply one bulk `UPDATE` / upsert per batch (no N+1; set audit columns yourself; keep the statement-count test rule).
-4. **Resolving `url_id`:** have the event carry `shortCode` and let the consumer map codes to ids with one `SELECT id, short_code FROM urls WHERE short_code IN (...)` per batch (links deleted in the meantime still resolve: rows are soft-deleted). This keeps the cache format unchanged.
-5. **Monthly partitions:** `url_clicks` is partitioned by `clicked_at`; Flyway creates the first partitions and a scheduled job (single-runner safe like `UrlExpirationJob`) creates upcoming months; consider a DEFAULT partition so a missed month never drops data. A foreign key to the non-partitioned `urls` table is allowed.
-6. **Poison messages:** use a `DefaultErrorHandler` with bounded back-off and a `DeadLetterPublishingRecoverer` to `url-clicks.DLT`; a malformed event must not block the partition.
-7. Keep surefire's `expiry-job-interval=PT24H` approach for any new scheduled job, and make Kafka listeners deterministic in tests (wait for the consumer with Awaitility, unique `shortCode`s per test).
-
-**Open decisions to ask the owner first (give a recommendation with each):**
-
-1. **IP privacy.** Recommended: never store the raw IP; store a keyed hash (`HMAC-SHA256` with a server secret and a per-day salt over IP + User-Agent) as the visitor identifier for unique-visitor counts, and keep only coarse data (country, device, browser, OS). Alternatives: truncate to /24 (IPv4) or /48 (IPv6), or store the raw IP.
-2. **Country lookup.** Recommended: MaxMind GeoLite2 (needs a free account, a license key and an `.mmdb` file mounted into the container; decide where the file lives and how it is refreshed). Alternatives: take the country from a CDN header such as `CF-IPCountry` when behind a CDN, or skip country until it is needed.
-3. **User-Agent parsing library** (for device/browser/OS), evaluated for size and maintenance.
-4. **Retention:** how long to keep raw `url_clicks` partitions (for example 13 months) before a job drops old partitions; aggregates in `url_daily_stats` are kept.
 
 ## Product direction and development plan
 
@@ -186,7 +170,7 @@ Goal: a TinyURL-style shortener. Currently only auth/user management exists (bas
 3. **Lifecycle (DONE):** lazy expiry check on redirect, scheduled job ACTIVE -> EXPIRED (single-runner lock when multi-instance), injectable `Clock` for tests.
 4. **Anonymous links and abuse protection (DONE):** `/api/v1/public/urls`, Redis rate limiting (429 + `Retry-After`), strict URL validation (http/https only, block localhost/private IPs/SSRF and self-redirect loops), per-user quota, domain blocklist, `BLOCKED` status, admin block/unblock.
 5. **Link extras (DONE):** custom alias (409 on conflict), password-protected links (`password_hash`, attempt limit), QR code generated on the fly (not stored).
-6. **Click tracking (Kafka):** `url_clicks` with unique `event_id`, topic `url-clicks` keyed by `shortCode`, async producer, idempotent batch consumer with retry + dead-letter topic, enrichment (User-Agent, GeoIP) in the consumer only, privacy handling for IPs, monthly partitions.
+6. **Click tracking (Kafka) (DONE):** `url_clicks` with unique `event_id`, topic `url-clicks` keyed by `shortCode`, async producer, idempotent batch consumer with retry + dead-letter topic, enrichment (User-Agent, GeoIP) in the consumer only, privacy handling for IPs, monthly partitions.
 7. **Analytics:** `url_daily_stats` unique `(url_id, stat_date)` upserted by the consumer, batched `urls.click_count` updates, unique-visitor estimate, stats APIs (owner/admin only), reconciliation job comparing `click_count` vs `url_clicks`.
 8. **Reliability and observability (logging/telemetry via OTLP + SigNoz):**
    - Export **logs, traces and metrics over OTLP** to **SigNoz** (OTLP gRPC `4317` / HTTP `4318`). Use the OpenTelemetry Java agent or the Micrometer-tracing OTLP bridge plus a Logback OTLP appender; endpoint and service name come from env vars (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME=url-shortener`), never hard-coded.

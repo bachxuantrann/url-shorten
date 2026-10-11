@@ -1,6 +1,8 @@
 package com.auradev.url_shortener.controller;
 
+import com.auradev.url_shortener.service.ClickPublisher;
 import com.auradev.url_shortener.service.RedirectService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -26,10 +28,13 @@ import java.net.URI;
 public class RedirectController {
 
     private final RedirectService redirectService;
+    private final ClickPublisher  clickPublisher;
 
     @GetMapping("/{code}")
-    public ResponseEntity<Void> redirect(@PathVariable String code) {
+    public ResponseEntity<Void> redirect(@PathVariable String code, HttpServletRequest request) {
         String target = redirectService.resolveTarget(code);
+        // Chỉ tính click khi redirect thành công (không phải 403/404/410); không bao giờ ném lỗi
+        clickPublisher.publish(code, request);
         return ResponseEntity.status(HttpStatus.FOUND)
                 .location(URI.create(target))
                 .cacheControl(CacheControl.noStore())

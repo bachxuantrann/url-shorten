@@ -31,3 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### GeoLite2 (MaxMind EULA cấm phân phối lại; mỗi máy tự tải) ###
+geoip/*.mmdb

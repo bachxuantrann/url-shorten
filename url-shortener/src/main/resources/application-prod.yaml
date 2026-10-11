@@ -173,6 +173,9 @@ management:
 # để rate limit theo IP thật của client khi chạy sau nginx/load balancer.
 server:
   forward-headers-strategy: native
+  # Deploy/restart không cắt ngang request đang chạy: ngừng nhận kết nối mới rồi đợi request cũ xong (tối đa 30s)
+  shutdown: graceful
+spring.lifecycle.timeout-per-shutdown-phase: 30s
 # ===== Logging =====
 logging:
   level:

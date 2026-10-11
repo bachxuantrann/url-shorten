@@ -25,3 +25,22 @@ jobs:
         run: |
           chmod +x mvnw
           ./mvnw -B verify
+
+  frontend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: url-shortener/frontend
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: url-shortener/frontend/package-lock.json
+
+      - run: npm ci
+      # build chạy tsc --noEmit trước nên đã gồm kiểm tra kiểu
+      - run: npm run build
+      - run: npm test

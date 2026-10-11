@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Layout
 
-The git root contains a single Maven project in `url-shortener/` (plus a stray root `.idea/`). Run all commands below from `url-shortener/`.
+The git root contains a single Maven project in `url-shortener/` (plus `.github/workflows/` and a stray root `.idea/`). Run all commands below from `url-shortener/`. Phase 9 added three non-Maven folders next to `src/`: `frontend/` (React app), `edge/` (Caddy image), `backup/` and `deploy/` (shell scripts).
 
 Stack: Java 21, Spring Boot 4.1.1, PostgreSQL, Redis, JWT (jjwt), MapStruct + Lombok. Base package `com.auradev.url_shortener`. Comments and Javadoc are written in Vietnamese; match that when editing existing files.
 
@@ -21,8 +21,12 @@ docker compose -f docker-compose.dev.yml up -d
 ./mvnw test                            # all tests
 ./mvnw test -Dtest=ClassName#method    # single test
 
-# Full prod stack (app built from Dockerfile + infra); needs a real .env.prod
+# Full prod stack (edge/Caddy + app + infra + backup); needs a real .env.prod and a domain (see Phase 9)
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+# Frontend (run in frontend/; dev server on :5173 proxies /api to the app on :8080)
+npm ci && npm run dev
+npm run build && npm test
 ```
 
 Integration tests use Testcontainers (Postgres, Redis, Kafka via `src/test/.../support/TestcontainersConfiguration`, add `@Import` to the test class), so they need a running Docker daemon but **not** the dev compose, and never touch the dev database. The first run pulls images and is slow; Spring caches the context, so keep test classes on the same configuration to share one set of containers.
@@ -118,6 +122,16 @@ Flow: successful `GET /{code}` (`RedirectController`) or correct `POST /api/v1/p
 - `docker-compose.prod.yml` now forwards `ADMIN_*` (the prod yaml requires them with no default; before this the container could not start), `OTEL_*` and `CLICK_RECONCILE_REPAIR`; the matching variables are in `.env.prod` / `.env.prod.example`.
 - `LoggingProducerListener` is turned off in both profiles (it printed an ERROR with stack trace per failed send, hundreds per second with the broker down); our own short WARN and the `click.events` metric cover it.
 
+### Frontend and deployment (Phase 9)
+
+- **Frontend** (`frontend/`, React 18 + Vite + TypeScript, plain CSS, only extra dependency `react-router-dom`; UI text is Vietnamese). Screens: anonymous quick shorten (home), register/login, link management (create with alias/password/expiry, search, status filter, paging, edit, enable/disable, delete, set/remove password, QR). **Not built:** the per-link stats page, the admin pages, and the unlock page for password-protected links (opening such a link in a browser still shows the JSON `403 ERR_408`; `POST /api/v1/public/urls/{code}/unlock` is ready for it). It uses **`HashRouter`** (`/#/login`...) so the UI takes no top-level path and `ShortCodes.RESERVED` did not need new words; **if you switch to `BrowserRouter` you must reserve every route**. `src/api.ts` holds the access token in memory and the refresh token in `localStorage` (XSS trade-off documented in `docs/deployment.md`), refreshes once on 401 (concurrent 401s share one refresh), and the QR is fetched with `fetch` + object URL because it needs the `Authorization` header. The `datetime-local` expiry is sent as-is, so it is interpreted in the **server's** timezone.
+- **Edge** (`edge/Dockerfile`, `edge/Caddyfile`): one image = frontend build (`/srv/www`) + Caddy built with `xcaddy` and `mholt/caddy-ratelimit` (the stock Caddy has no rate limiter). Caddy is the only service with published ports (80/443/443 udp), gets/renews Let's Encrypt certificates (volume `caddy_data`, never delete it), adds HSTS and security headers (strict CSP: `script-src 'self'`, so no inline scripts in the frontend), blocks `/actuator/*`, serves `/`, `/assets/*`, `/favicon.svg`, `/robots.txt` as static files and proxies `/api/*` and every other path (the `/{code}` redirect) to the app. Per-IP limits (key `{http.request.remote.host}`): auth 20/min, public 60/min, other `/api` 300/min, redirect 600/min; 429 + `Retry-After`. These are a coarse layer **on top of** the Redis business limits of Phase 4/5. Behind Cloudflare/another LB every request would share one IP: change the key then. The Dockerfile runs `caddy validate`, so a broken Caddyfile fails the image build.
+- **CORS is intentionally not configured** (UI and API are same-origin; dev uses the Vite proxy). Add an explicit origin list only if the frontend moves to another domain.
+- **`docker-compose.prod.yml`** now has `edge` (needs `APP_DOMAIN`, `ACME_EMAIL`) and `backup`; the app no longer publishes a port (only `expose`). Both `app` and `edge` have `build:` and `image: ${APP_IMAGE|EDGE_IMAGE:-ghcr.io/bachxuantrann/url-shorten/...}`, so `up --build` still works locally and the pipeline pulls images. `application-prod.yaml` got `server.shutdown: graceful` (30 s; compose `stop_grace_period` 40 s).
+- **Backups:** `backup/backup.sh` (loop in the `backup` service: `pg_dump -Fc` to volume `postgres_backups`, validated with `pg_restore --list`, written as `.partial` then renamed, retention `BACKUP_RETENTION_DAYS`, failure only logs and retries next cycle) and `backup/restore.sh` (default: restore into a temporary `<db>_restore_check` DB, count rows, drop it; `RESTORE_TARGET=live` overwrites the real DB). **Backups live on the same host as the DB** and are not copied off-site; pushing to S3-compatible storage was explicitly postponed by the owner.
+- **Pipeline:** `.github/workflows/ci.yml` gained a `frontend` job; `.github/workflows/deploy.yml` runs after CI succeeds on `main` (or manually), uses the GitHub Environment `production`, builds/pushes `app` and `edge` to GHCR (tags: commit SHA and `latest`), copies compose + `deploy/` + `backup/` over SSH and runs `deploy/deploy.sh`, which writes `APP_IMAGE`/`EDGE_IMAGE` into the server's `.env.prod`, pulls, `up -d`, waits for `url_shortener_app` to be healthy and **rolls back to the previous images if it does not**. It refuses to run while `.env.prod` still contains `CHANGE_ME`. Rollback does not undo Flyway migrations, so migrations must stay backward compatible by one version. Real secrets live only in `.env.prod` on the server; GitHub only holds the SSH key, the pinned `known_hosts` line and `DEPLOY_HOST/USER/PATH`.
+- Setup steps, variable table, restore procedure and the list of things not verified: `docs/deployment.md`. **Verified in this environment** (no Docker daemon, no VPS): the Caddyfile (real xcaddy build, `caddy validate`, live run: static files, actuator 404, headers, 429 on request 21), backup/restore scripts against a real Postgres, `deploy.sh` with a fake `docker`, `docker compose config`, frontend `tsc` + build + vitest. **Not verified:** image builds, the real prod stack, Let's Encrypt, the GitHub workflows, the UI in a browser, and the backend suite (only YAML changed, not re-run).
+
 ### Errors and i18n
 
 All errors go through `AppException(ErrorCode, args...)`. `ErrorCode` holds the code (`ERR_xxx` ranges documented in the enum), message key, and HTTP status. `GlobalExceptionHandler` and the 401/403 handlers in `SecurityConfig` both render the same `ApiResponse` shape, with messages resolved by `TranslatorUtils` from `src/main/resources/i18n/message.properties` and `message_vi.properties`. A new error needs an `ErrorCode` entry and a key in both property files.
@@ -166,11 +180,12 @@ Handoff notes so a new session can continue without the previous conversation.
 - `AppConstant.PUBLIC_ENDPOINTS` lists `/swagger-ui/**` and `/v3/api-docs/**` but springdoc is not a dependency, so those paths return 404.
 - `UserController` still has its own `getAuthenticatedUserId` helper (newer code uses `SecurityUtils`), and `UrlApiIntegrationTest` has private HTTP helpers that duplicate `support/ApiClient`.
 - `UrlService.createAnonymous` takes the full `CreateUrlRequest` and ignores its alias/password; a dedicated command type would be cleaner.
-- Prod env: `.env.prod` still has `CHANGE_ME_*` placeholders. `APP_BASE_URL` and `SHORT_CODE_SECRET` must be real values before deploying, and `SHORT_CODE_SECRET` must never change afterwards.
+- Prod env: `.env.prod` still has `CHANGE_ME_*` placeholders. `APP_BASE_URL`, `APP_DOMAIN`, `ACME_EMAIL` and `SHORT_CODE_SECRET` must be real values before deploying (on the server, not in git), and `SHORT_CODE_SECRET` must never change afterwards.
+- Frontend has no stats, admin or unlock-password pages yet; Postgres backups are not copied off the host; nothing has been deployed to a real server yet.
 
 ## Product direction and development plan
 
-Goal: a TinyURL-style shortener. Currently only auth/user management exists (base project); the URL domain is built in the phases below. Build phase by phase; each phase must be runnable and tested on its own.
+Goal: a TinyURL-style shortener. Phases 0-9 are done (see below). Build phase by phase; each phase must be runnable and tested on its own.
 
 ### Design decisions (already made)
 
@@ -199,7 +214,7 @@ Goal: a TinyURL-style shortener. Currently only auth/user management exists (bas
    - Keep correlation: trace/span IDs injected into log lines (MDC) so a slow redirect can be traced across Redis, Postgres and Kafka.
    - Custom metrics: redirect latency, cache hit ratio, Kafka send failures, consumer lag.
    - Resilience4j timeouts/circuit breakers for Redis and Kafka, k6 load test (target p99 redirect < 50 ms on cache hit), multi-instance run behind nginx, manual chaos tests (Redis/Kafka/consumer down).
-9. **Frontend and deployment:** web UI, prod config hardening (CORS, HTTPS, real secrets, no `show-sql`), deploy pipeline, Postgres backups.
+9. **Frontend and deployment (DONE, see Phase 9 notes above):** web UI (React/Vite), Caddy edge with HTTPS + rate limit, prod config hardening (graceful shutdown, no published app port, CORS deliberately off), GitHub Actions deploy to a VPS via GHCR, Postgres backups (local volume; off-site copy postponed). Remaining: stats/admin/unlock pages, off-site backups, first real deploy.
 10. **Later:** API keys, custom domains, Safe Browsing check, email verification.
 
 MVP = Phases 0-2 (create a link, click it, get redirected).

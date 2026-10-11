@@ -1,0 +1,95 @@
+# =============================================
+#  Caddyfile — cổng vào duy nhất của production (HTTPS tự động + rate limit)
+#
+#  - Caddy tự xin và gia hạn chứng chỉ Let's Encrypt cho {$APP_DOMAIN} (cần DNS trỏ về máy chủ,
+#    mở cổng 80 và 443). Chứng chỉ nằm ở volume caddy_data: không xoá volume này.
+#  - Giao diện web (build của frontend/) được nướng sẵn trong image tại /srv/www.
+#  - /api/* và mọi đường dẫn một đoạn còn lại (/{code} -> redirect) đi tới app Spring.
+#  - /actuator/* bị chặn ở đây (Docker healthcheck gọi thẳng vào app, không qua Caddy).
+#  - Rate limit dùng plugin mholt/caddy-ratelimit (Dockerfile của edge build bằng xcaddy). Khoá theo IP
+#    TCP thật của client. Nếu đặt Cloudflare/LB phía trước thì mọi request sẽ có cùng IP: phải đổi key
+#    sang header client IP của dịch vụ đó (và chỉ tin header đó từ dải IP của dịch vụ).
+#  - App còn có rate limit nghiệp vụ riêng (tạo link, mở khoá) trong Redis: hai lớp bổ sung nhau.
+# =============================================
+{
+	email {$ACME_EMAIL}
+	order rate_limit before basic_auth
+}
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# Giao diện chỉ tải script/style cùng origin; QR hiển thị từ blob:
+		Content-Security-Policy "default-src 'self'; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+		-Server
+	}
+
+	# Không lộ actuator ra internet
+	@actuator path /actuator /actuator/*
+	respond @actuator 404
+
+	# ===== API =====
+	handle /api/v1/auth/* {
+		# Đăng nhập/đăng ký/refresh: chặn dò mật khẩu và tạo tài khoản hàng loạt
+		rate_limit {
+			zone auth_per_ip {
+				key {http.request.remote.host}
+				events 20
+				window 1m
+			}
+		}
+		reverse_proxy {$APP_UPSTREAM:app:8080}
+	}
+
+	handle /api/v1/public/* {
+		# Tạo link ẩn danh và mở khoá link có mật khẩu (app còn giới hạn riêng từng loại)
+		rate_limit {
+			zone public_per_ip {
+				key {http.request.remote.host}
+				events 60
+				window 1m
+			}
+		}
+		reverse_proxy {$APP_UPSTREAM:app:8080}
+	}
+
+	handle /api/* {
+		rate_limit {
+			zone api_per_ip {
+				key {http.request.remote.host}
+				events 300
+				window 1m
+			}
+		}
+		reverse_proxy {$APP_UPSTREAM:app:8080}
+	}
+
+	# ===== Giao diện web (file tĩnh) =====
+	@static path / /index.html /favicon.svg /robots.txt /assets/*
+	handle @static {
+		root * /srv/www
+		# File trong /assets có hash trong tên nên cache vĩnh viễn; index.html luôn kiểm tra lại
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		header Cache-Control "no-cache"
+		file_server
+	}
+
+	# ===== Còn lại: GET /{code} -> redirect do app xử lý =====
+	handle {
+		rate_limit {
+			zone redirect_per_ip {
+				key {http.request.remote.host}
+				events 600
+				window 1m
+			}
+		}
+		reverse_proxy {$APP_UPSTREAM:app:8080}
+	}
+}

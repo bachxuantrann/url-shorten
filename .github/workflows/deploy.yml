@@ -1,0 +1,114 @@
+# Deploy production: build image app + edge -> đẩy lên GHCR -> SSH vào máy chủ chạy deploy/deploy.sh.
+#
+# Chạy tự động sau khi workflow CI thành công trên nhánh main, hoặc chạy tay (workflow_dispatch).
+# Cần tạo GitHub Environment "production" (nên bật Required reviewers để có bước duyệt trước khi deploy) với:
+#   Secrets:    DEPLOY_SSH_KEY      khoá riêng SSH của user deploy trên máy chủ
+#               DEPLOY_KNOWN_HOSTS  dòng known_hosts của máy chủ:  ssh-keyscan -t ed25519 <host>
+#   Variables:  DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH (thư mục triển khai trên máy chủ, có sẵn .env.prod)
+# Bí mật của ứng dụng (JWT_SECRET, DB_PASSWORD...) nằm trong .env.prod TRÊN MÁY CHỦ, không đi qua GitHub.
+# Hướng dẫn thiết lập: url-shortener/docs/deployment.md
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# Mỗi lần chỉ một deploy; deploy sau chờ deploy trước xong (không huỷ giữa chừng)
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    environment: production
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SHA }}
+
+      - name: Tên image (GHCR yêu cầu chữ thường)
+        run: |
+          base="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          echo "APP_IMAGE=$base/app" >> "$GITHUB_ENV"
+          echo "EDGE_IMAGE=$base/edge" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build và đẩy image app
+        uses: docker/build-push-action@v6
+        with:
+          context: url-shortener
+          file: url-shortener/Dockerfile
+          push: true
+          tags: |
+            ${{ env.APP_IMAGE }}:${{ env.SHA }}
+            ${{ env.APP_IMAGE }}:latest
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,scope=app,mode=max
+
+      - name: Build và đẩy image edge (Caddy + frontend)
+        uses: docker/build-push-action@v6
+        with:
+          context: url-shortener
+          file: url-shortener/edge/Dockerfile
+          push: true
+          tags: |
+            ${{ env.EDGE_IMAGE }}:${{ env.SHA }}
+            ${{ env.EDGE_IMAGE }}:latest
+          cache-from: type=gha,scope=edge
+          cache-to: type=gha,scope=edge,mode=max
+
+      - name: Cấu hình SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Chép file triển khai lên máy chủ
+        env:
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+        run: |
+          ssh_opts="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=yes"
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          dir="$DEPLOY_PATH"
+          cd url-shortener
+          tar czf - docker-compose.prod.yml deploy backup \
+            | ssh $ssh_opts "$target" "mkdir -p '$dir' && tar xzf - -C '$dir'"
+
+      - name: Deploy (kéo image, up -d, đợi healthy, tự rollback nếu lỗi)
+        env:
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          ssh_opts="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=yes"
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          dir="$DEPLOY_PATH"
+          # Token GITHUB_TOKEN chỉ sống hết job; truyền qua stdin để không lộ trong danh sách tiến trình
+          printf '%s' "$GHCR_TOKEN" | ssh $ssh_opts "$target" \
+            "docker login ghcr.io -u '$GHCR_USER' --password-stdin >/dev/null && cd '$dir' && sh deploy/deploy.sh '${APP_IMAGE}:${SHA}' '${EDGE_IMAGE}:${SHA}'; rc=\$?; docker logout ghcr.io >/dev/null; exit \$rc"

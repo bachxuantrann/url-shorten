@@ -3,11 +3,16 @@
 #  Mục đích: Full-stack production deployment.
 #  Bao gồm: build BE từ Dockerfile + tất cả infra.
 #
-#  Yêu cầu: File .env.prod trong cùng thư mục (không commit lên git)
+#  Yêu cầu: File .env.prod trong cùng thư mục với giá trị THẬT (bản trong git chỉ là mẫu CHANGE_ME_*)
+#
+#  Thành phần: edge (Caddy: HTTPS + rate limit + giao diện web) -> app -> postgres/redis/kafka,
+#  cộng backup (pg_dump định kỳ). Chỉ edge mở cổng ra ngoài (80/443); app và infra chỉ trong mạng nội bộ.
 #
 #  Cách dùng:
-#    docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#    Build tại chỗ:  docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#    Từ registry:    deploy/deploy.sh (do pipeline gọi; kéo image APP_IMAGE / EDGE_IMAGE rồi up -d)
 #    docker compose -f docker-compose.prod.yml down
+#  Hướng dẫn đầy đủ (DNS, secrets, pipeline, backup/restore): docs/deployment.md
 #
 #  Cấu trúc .env.prod (xem .env.prod.example để biết thêm):
 #    DB_NAME=url_shortener_prod
@@ -28,8 +33,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: ${APP_IMAGE:-ghcr.io/bachxuantrann/url-shorten/app:latest}
     container_name: url_shortener_app
     restart: unless-stopped
+    stop_grace_period: 40s   # > timeout-per-shutdown-phase (30s) của application-prod.yaml
     depends_on:
       postgres:
         condition: service_healthy
@@ -73,8 +80,9 @@ services:
       TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-0.1}
       # Server
       SERVER_PORT: ${SERVER_PORT:-8080}
-    ports:
-      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
+    # Không publish cổng ra host: chỉ edge (Caddy) trong cùng mạng gọi được app
+    expose:
+      - "${SERVER_PORT:-8080}"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:${SERVER_PORT:-8080}/actuator/health || exit 1"]
       interval: 30s
@@ -88,6 +96,68 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
+
+  # ===== Edge: Caddy (HTTPS tự động + rate limit + giao diện web) =====
+  # Image build từ edge/Dockerfile (context = thư mục này): frontend đã build + Caddy kèm plugin rate limit.
+  # Cần: DNS của APP_DOMAIN trỏ về máy chủ, mở cổng 80 và 443 (443/udp cho HTTP/3).
+  # Chứng chỉ lưu ở volume caddy_data — xoá volume này là mất chứng chỉ và dễ chạm giới hạn của Let's Encrypt.
+  edge:
+    build:
+      context: .
+      dockerfile: edge/Dockerfile
+    image: ${EDGE_IMAGE:-ghcr.io/bachxuantrann/url-shorten/edge:latest}
+    container_name: url_shortener_edge
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+      APP_UPSTREAM: app:${SERVER_PORT:-8080}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - prod_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ===== Backup Postgres (pg_dump định kỳ) =====
+  # Ghi vào volume postgres_backups. Cùng máy chủ với DB nên phải sao chép ra ngoài máy (docs/deployment.md).
+  # Khôi phục / kiểm tra bản backup: backup/restore.sh
+  backup:
+    image: postgres:16-alpine
+    container_name: url_shortener_backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["sh", "/scripts/backup.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${DB_USERNAME}
+      PGPASSWORD: ${DB_PASSWORD}
+      PGDATABASE: ${DB_NAME}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - ./backup:/scripts:ro
+      - postgres_backups:/backups
+    networks:
+      - prod_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ===== PostgreSQL =====
   postgres:
@@ -215,6 +285,12 @@ services:
 
 # ===== VOLUMES =====
 volumes:
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+  postgres_backups:
+    driver: local
   openobserve_prod_data:
     driver: local
   postgres_prod_data:

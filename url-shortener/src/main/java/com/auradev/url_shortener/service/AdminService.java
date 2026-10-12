@@ -50,4 +50,13 @@ public interface AdminService {
      * @param userId ID của user cần mở khoá
      */
     void unlockUser(UUID userId);
+
+    /**
+     * Đổi vai trò (Admin): {@code ROLE_ADMIN} = {ADMIN, USER}, {@code ROLE_USER} = {USER}. Không tự đổi vai trò của mình
+     * ({@code CANNOT_CHANGE_OWN_ROLE}) và không gỡ quản trị viên ACTIVE cuối cùng ({@code LAST_ADMIN_REQUIRED}). Role nằm
+     * trong JWT nên có hiệu lực khi access token hiện tại của user hết hạn.
+     *
+     * @param actorId admin đang thao tác
+     */
+    UserResponse changeRole(UUID actorId, UUID userId, RoleEnum role);
 }

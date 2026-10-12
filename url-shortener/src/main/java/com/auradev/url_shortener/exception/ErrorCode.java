@@ -33,6 +33,8 @@ public enum ErrorCode {
     ACCOUNT_BANNED("ERR_104", "api.error.account_banned", HttpStatus.FORBIDDEN),
     WRONG_OLD_PASSWORD("ERR_105", "api.error.wrong_old_password", HttpStatus.BAD_REQUEST),
     PASSWORD_NOT_MATCH("ERR_106", "api.error.password_not_match", HttpStatus.BAD_REQUEST),
+    CANNOT_CHANGE_OWN_ROLE("ERR_107", "api.error.cannot_change_own_role", HttpStatus.FORBIDDEN),
+    LAST_ADMIN_REQUIRED("ERR_108", "api.error.last_admin_required", HttpStatus.CONFLICT),
 
     // ===== AUTHENTICATION (200-299) =====
     INVALID_CREDENTIALS("ERR_200", "api.error.invalid_credentials", HttpStatus.UNAUTHORIZED),

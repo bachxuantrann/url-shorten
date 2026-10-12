@@ -40,6 +40,10 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     // ===== Admin filters =====
 
+    /** Số user ACTIVE có vai trò {@code role}, không tính {@code excludeId}: để không gỡ quản trị viên cuối cùng. */
+    @Query("SELECT count(DISTINCT u) FROM User u JOIN u.roles r WHERE r = :role AND u.id <> :excludeId AND u.status = com.auradev.url_shortener.enums.UserStatusEnum.ACTIVE")
+    long countActiveWithRoleExcluding(@Param("role") RoleEnum role, @Param("excludeId") UUID excludeId);
+
     /** Tìm user theo status */
     Page<User> findByStatus(UserStatusEnum status, Pageable pageable);
 
@@ -61,15 +65,18 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             "OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', :keyword, '%'))")
     Page<User> searchByKeyword(@Param("keyword") String keyword, Pageable pageable);
 
-    /** Tìm kiếm kết hợp keyword + status + role */
+    /**
+     * Tìm kiếm kết hợp keyword + status + role. {@code pattern} luôn khác null (mẫu từ {@code LikePatterns.contains},
+     * {@code "%"} khi không có từ khoá): để null thì Postgres suy ra kiểu bytea và báo "lower(bytea) does not exist".
+     */
     @Query("SELECT DISTINCT u FROM User u LEFT JOIN u.roles r " +
-            "WHERE (:keyword IS NULL OR LOWER(u.username) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
-            "   OR LOWER(u.email) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
-            "   OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+            "WHERE (LOWER(u.username) LIKE :pattern ESCAPE '!' " +
+            "   OR LOWER(u.email) LIKE :pattern ESCAPE '!' " +
+            "   OR LOWER(u.fullName) LIKE :pattern ESCAPE '!') " +
             "AND (:status IS NULL OR u.status = :status) " +
             "AND (:role IS NULL OR r = :role)")
     Page<User> findWithFilters(
-            @Param("keyword") String keyword,
+            @Param("pattern") String pattern,
             @Param("status") UserStatusEnum status,
             @Param("role") RoleEnum role,
             Pageable pageable

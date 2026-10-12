@@ -10,6 +10,7 @@ import com.auradev.url_shortener.exception.ErrorCode;
 import com.auradev.url_shortener.mapper.UserMapper;
 import com.auradev.url_shortener.repository.UserRepository;
 import com.auradev.url_shortener.service.AdminService;
+import com.auradev.url_shortener.utils.LikePatterns;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -18,6 +19,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 import com.auradev.url_shortener.config.JwtProperties;
 import com.auradev.url_shortener.utils.TokenRedisService;
@@ -49,7 +52,7 @@ public class AdminServiceImpl  implements AdminService {
         if (hasKeyword || hasStatus || hasRole) {
             // Dùng query filter tổng hợp
             page = userRepository.findWithFilters(
-                    hasKeyword ? keyword : null,
+                    LikePatterns.contains(keyword),
                     hasStatus  ? status  : null,
                     hasRole    ? role    : null,
                     pageable
@@ -93,6 +96,29 @@ public class AdminServiceImpl  implements AdminService {
         userRepository.updateStatus(userId, UserStatusEnum.ACTIVE);
         tokenRedisService.clearUserLocked(userId);
         log.info("[ADMIN] User unlocked: userId={}", userId);
+    }
+
+    @Override
+    @Transactional
+    public UserResponse changeRole(UUID actorId, UUID userId, RoleEnum role) {
+        if (actorId.equals(userId)) {
+            throw new AppException(ErrorCode.CANNOT_CHANGE_OWN_ROLE);
+        }
+        User user = findUserByIdOrThrow(userId);
+        boolean isAdmin = user.getRoles().contains(RoleEnum.ROLE_ADMIN);
+        boolean makeAdmin = role == RoleEnum.ROLE_ADMIN;
+        if (isAdmin == makeAdmin) {
+            return userMapper.toUserResponse(user); // không đổi gì
+        }
+        if (!makeAdmin && user.getStatus() == UserStatusEnum.ACTIVE
+                && userRepository.countActiveWithRoleExcluding(RoleEnum.ROLE_ADMIN, userId) == 0) {
+            throw new AppException(ErrorCode.LAST_ADMIN_REQUIRED);
+        }
+        user.setRoles(makeAdmin
+                ? new HashSet<>(Set.of(RoleEnum.ROLE_ADMIN, RoleEnum.ROLE_USER))
+                : new HashSet<>(Set.of(RoleEnum.ROLE_USER)));
+        log.info("[ADMIN] User role changed: userId={}, role={}, by={}", userId, makeAdmin ? "ADMIN" : "USER", actorId);
+        return userMapper.toUserResponse(userRepository.save(user));
     }
 
     private User findUserByIdOrThrow(UUID userId) {

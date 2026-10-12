@@ -106,6 +106,11 @@ public class ApiClient {
         return login(ADMIN_USERNAME, ADMIN_PASSWORD);
     }
 
+    /** Đăng nhập lại một user do {@link #registerAndLogin()} tạo (mật khẩu chung {@link #PASSWORD}) để lấy token mới. */
+    public String loginAs(String username) throws Exception {
+        return login(username, PASSWORD);
+    }
+
     private String login(String username, String password) throws Exception {
         Resp login = call("POST", "/api/v1/auth/login", null,
                 "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}");

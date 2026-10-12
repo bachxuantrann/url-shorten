@@ -1,13 +1,17 @@
 package com.auradev.url_shortener.controller;
 
 import com.auradev.url_shortener.constant.AppConstant;
+import com.auradev.url_shortener.dto.request.ChangeRoleRequest;
 import com.auradev.url_shortener.dto.response.ApiResponse;
 import com.auradev.url_shortener.dto.response.PageResponse;
 import com.auradev.url_shortener.dto.response.UserResponse;
 import com.auradev.url_shortener.enums.RoleEnum;
 import com.auradev.url_shortener.enums.UserStatusEnum;
 import com.auradev.url_shortener.service.AdminService;
+import com.auradev.url_shortener.utils.SecurityUtils;
 import com.auradev.url_shortener.utils.TranslatorUtils;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -29,6 +33,7 @@ import java.util.UUID;
  *   <li>GET  {@code /api/v1/admin/users/{id}}      — Lấy user theo ID</li>
  *   <li>PUT  {@code /api/v1/admin/users/{id}/lock}   — Khoá tài khoản</li>
  *   <li>PUT  {@code /api/v1/admin/users/{id}/unlock} — Mở khoá tài khoản</li>
+ *   <li>PUT  {@code /api/v1/admin/users/{id}/role}   — Đổi vai trò (body {@code {"role": "ROLE_ADMIN" | "ROLE_USER"}})</li>
  * </ul>
  */
 @RestController
@@ -96,6 +101,23 @@ public class AdminController {
         adminService.lockUser(id);
         String message = translator.toLocale("api.success.user_locked");
         return ResponseEntity.ok(ApiResponse.success(message, null));
+    }
+
+    /**
+     * PUT /api/v1/admin/users/{id}/role
+     * Cấp hoặc gỡ quyền quản trị. Không tự đổi vai trò của mình, không gỡ quản trị viên cuối cùng. Role nằm trong JWT nên
+     * có hiệu lực khi access token hiện tại của user hết hạn.
+     */
+    @PutMapping("/users/{id}/role")
+    public ResponseEntity<ApiResponse<UserResponse>> changeRole(
+            @PathVariable UUID id,
+            @Valid @RequestBody ChangeRoleRequest body,
+            HttpServletRequest request
+    ) {
+        UUID actorId = SecurityUtils.getAuthenticatedUserId(request);
+        UserResponse updated = adminService.changeRole(actorId, id, body.getRole());
+        String message = translator.toLocale("api.success.user_role_changed");
+        return ResponseEntity.ok(ApiResponse.success(message, updated));
     }
 
     /**

@@ -86,6 +86,7 @@ Quy ước cột: **Màn hình** là đường dẫn giao diện; **API** là en
 | F17 | Xử lý kháng nghị | A | `/admin/appeals` | `/admin/appeals` |
 | F18 | Trang trạng thái link (không tồn tại / hết hạn / bị chặn) | K | `/unavailable/{lý do}` | — |
 | F19 | Giao diện: sáng/tối, Việt/Anh, múi giờ máy chủ | Tất cả | Mọi trang | `GET /public/config` |
+| F20 | Giám sát log hệ thống (qua OpenObserve) | A | `/admin/monitoring` | `/admin/monitoring/status`, `/summary`, `/logs` |
 
 Tiền tố `/api/v1` được lược bỏ ở cột API cho gọn.
 
@@ -94,7 +95,7 @@ Tiền tố `/api/v1` được lược bỏ ở cột API cho gọn.
 - **Xử lý:** kiểm tra trùng tên đăng nhập và email (409 `ERR_101`, `ERR_102`); mật khẩu băm bằng BCrypt; tài khoản mới có `ROLE_USER`, trạng thái hoạt động. Giao diện đăng nhập luôn sau khi đăng ký.
 
 ### F02. Đăng nhập, đăng xuất, làm mới token
-- **Đăng nhập:** sai thông tin → 401 `ERR_200`; tài khoản bị khoá → 403 `ERR_104`; chưa kích hoạt → 403 `ERR_103`.
+- **Đăng nhập:** sai thông tin → 401 `ERR_200`; tài khoản bị khoá → 403 `ERR_104`; chưa kích hoạt → 403 `ERR_103` (trạng thái `INACTIVE` hiện **chưa có đường nào đặt được**: đăng ký tạo tài khoản `ACTIVE` ngay; nó dành cho xác minh email sau này, nên bộ lọc "Chưa kích hoạt" đã được ẩn khỏi trang Người dùng).
 - **Làm mới token:** so khớp refresh token với bản lưu trong Redis (`RT:{userId}:{sessionId}`); tài khoản bị khoá vẫn nhận 403 `ERR_104` để người dùng biết lý do.
 - **Giao diện:** khi gặp 401 trên request có token, tự làm mới một lần (single-flight); khi gặp 403 `ERR_104` hiện hộp thoại "Tài khoản đã bị khoá"; khi đang đăng nhập, cứ 30 giây (và khi tab hiện lại) hỏi `GET /users/me` để phát hiện bị khoá.
 
@@ -176,6 +177,7 @@ Tiền tố `/api/v1` được lược bỏ ở cột API cho gọn.
 ### F16. Xử lý báo cáo lạm dụng (admin)
 - Ba tab: Chờ xử lý / Đã xử lý / Đã bỏ qua. Mỗi **link** là một thẻ (số báo cáo, số báo cáo theo lý do, lần báo gần nhất); bung thẻ xem từng báo cáo (tối đa 100, không có thông tin người báo).
 - Thao tác: **Chặn link**, **Đánh dấu đã xử lý**, **Bỏ qua** (không phải lạm dụng); đóng mọi báo cáo đang mở của link bằng một câu lệnh.
+- **Chuyển giữa ba tab theo mọi chiều** (`PUT /admin/reports/{mã}/move`): kéo thẻ thả lên nút tab, hoặc dùng menu "Chuyển tới…" trên thẻ (dành cho màn hình cảm ứng và bàn phím). Chỉ chuyển các báo cáo đang ở tab nguồn, không đổi trạng thái của link; nếu người khác vừa chuyển trước thì báo và làm mới danh sách.
 
 ### F17. Xử lý kháng nghị (admin)
 - Ba tab: Chờ xem xét (cũ nhất trước) / Đã chấp nhận / Đã từ chối. Mỗi thẻ có link, lý do bị chặn, chủ link, nội dung kháng nghị.
@@ -184,6 +186,13 @@ Tiền tố `/api/v1` được lược bỏ ở cột API cho gọn.
 
 ### F18. Trang trạng thái
 - `/unavailable/not-found`, `/unavailable/gone`, `/unavailable/blocked` là nơi trình duyệt được chuyển tới khi mở link chết, kèm trang 404 của giao diện.
+
+### F20. Giám sát log hệ thống (admin)
+- Mục **Giám sát** ở khu Quản trị. Backend gọi OpenObserve (API tìm kiếm, xác thực Basic) rồi trả log cho admin; trình duyệt không bao giờ thấy thông tin đăng nhập OpenObserve.
+- **Nội dung:** huy hiệu kết nối ("Đã kết nối" / "OpenObserve không phản hồi"), nút **Mở OpenObserve** (tab mới) để xem trace và metric; số dòng log theo mức Lỗi / Cảnh báo / Thông tin / Gỡ lỗi (bấm thẻ để bật/tắt lọc, luôn còn ít nhất một mức; mặc định Lỗi + Cảnh báo); top exception gặp nhiều nhất; danh sách log mới nhất trước, phân trang 25 dòng; bung từng dòng xem loại exception, stacktrace và mã trace (có nút sao chép).
+- **Bộ lọc:** khoảng 15 phút / 1 giờ / 6 giờ / 24 giờ; tìm trong nội dung log (không phân biệt hoa thường, tối đa 100 ký tự); tự làm mới mỗi 10 giây.
+- **Cấu hình:** `OPENOBSERVE_URL`, `OPENOBSERVE_UI_URL`, `OPENOBSERVE_EMAIL`, `OPENOBSERVE_PASSWORD`. Chưa cấu hình (mặc định ở prod) thì trang báo cách thiết lập và không gọi gì. OpenObserve lỗi → 502 `ERR_601`, chưa cấu hình → 503 `ERR_600`.
+- **An toàn:** mức log và khoảng thời gian chỉ nhận giá trị trong danh sách cho phép; từ khoá được thoát dấu nháy và so khớp chuỗi con (không dùng mẫu LIKE); chuỗi dài bị cắt.
 
 ### F19. Giao diện chung
 - Sáng/tối, Việt/Anh (tiếng Anh là nguồn; tiếng Việt thiếu khoá thì không build được), số nhiều đúng ("1 link", "2 links").
@@ -288,6 +297,7 @@ Khách báo → admin xem theo link → chặn link (các báo cáo thành "đã
 | `ERR_501` | 403 | Hết hạn mức link |
 | `ERR_502` / `503` | 400 | Đích không an toàn / domain bị chặn |
 | `ERR_504`–`506` | 409/404/400 | Domain bị chặn: đã tồn tại / không có / không hợp lệ |
+| `ERR_600` / `601` | 503 / 502 | Giám sát: chưa cấu hình OpenObserve / không đọc được log |
 | `ERR_999` | 500 | Lỗi hệ thống |
 
 Mọi lỗi dùng chung một khuôn `{success, code, message, data?, timestamp}`; `message` đã được dịch theo ngôn ngữ yêu cầu. Giao diện dựa vào `code`, không dựa vào `message`.

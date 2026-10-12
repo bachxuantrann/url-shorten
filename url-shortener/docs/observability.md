@@ -97,6 +97,24 @@ Gợi ý biểu đồ (viết theo ý, cú pháp truy vấn xem trình dựng c�
   `kafka_consumer_fetch_manager_records_lag_max` tăng liên tục nghĩa là consumer không theo kịp.
 - **Circuit breaker**: cảnh báo khi `resilience4j_circuitbreaker_state{state="open"} == 1` kéo dài.
 
+## Trang "Giám sát" trong giao diện (admin)
+
+Mục **Giám sát** ở khu Quản trị (`/admin/monitoring`) cho admin xem log ngay trong ứng dụng mà không phải mở OpenObserve: số dòng
+theo mức (bấm để lọc), exception gặp nhiều nhất, tìm trong nội dung log, chọn khoảng 15 phút / 1 giờ / 6 giờ / 24 giờ, tự làm mới
+mỗi 10 giây, và nút **Mở OpenObserve** để xem trace và metric. **Backend là bên gọi OpenObserve** (`POST /api/{org}/_search?type=logs`,
+xác thực Basic); trình duyệt chỉ gọi `GET /api/v1/admin/monitoring/{status,summary,logs}` (cần `ROLE_ADMIN`) nên thông tin đăng
+nhập không bao giờ xuống trình duyệt.
+
+Cấu hình (`app.openobserve.*`, cùng tên biến với phần dựng container): `OPENOBSERVE_URL` (backend gọi: dev `http://localhost:5080`,
+trong Docker `http://openobserve:5080`), `OPENOBSERVE_UI_URL` (địa chỉ admin mở được bằng trình duyệt), `OPENOBSERVE_EMAIL`,
+`OPENOBSERVE_PASSWORD`. Dev có sẵn giá trị mặc định khớp `docker-compose.dev.yml`. **Prod để trống `OPENOBSERVE_URL` thì tính năng
+tắt** (trang báo "Chưa thiết lập giám sát", không gọi gì); khi dùng profile `observability` thì đặt `OPENOBSERVE_URL=http://openobserve:5080`.
+
+An toàn: mức log chỉ nhận ERROR/WARN/INFO/DEBUG/TRACE, từ khoá tối đa 100 ký tự được thoát dấu nháy đơn và dùng
+`str_match_ignore_case` (so khớp chuỗi con, `%` và `_` là ký tự thường), khoảng thời gian chỉ nhận 15/60/360/1440 phút, kích thước trang tối
+đa 100, chuỗi dài bị cắt (nội dung 4.000 ký tự, stacktrace 8.000). OpenObserve lỗi hoặc không trả lời → 502 `ERR_601` (không lộ chi tiết nội bộ);
+chưa cấu hình → 503 `ERR_600`. Chỉ đọc stream log (`app.openobserve.log-stream`, mặc định `default`); trace và metric xem trong chính OpenObserve.
+
 ## Đã kiểm chứng và chưa kiểm chứng
 
 Đã kiểm chứng với **OpenObserve thật** (`v1.0.4`, hai instance app qua nginx, 2.000 request k6, truy vấn lại bằng API của nó):
@@ -107,6 +125,9 @@ Gợi ý biểu đồ (viết theo ý, cú pháp truy vấn xem trình dựng c�
 Đã kiểm chứng bằng test tự động (`ObservabilityIntegrationTest`, Postgres/Redis/Kafka thật): trace HTTP + Redis + JDBC + Kafka
 trong một trace, span link của consumer, các metric tuỳ biến, metric breaker và lag consumer, việc **trace, metric, log
 thực sự được gửi** tới một collector OTLP/HTTP giả với đúng `service.name`, và header `Authorization` có mặt trên cả ba loại dữ liệu.
+
+Trang Giám sát đã chạy với OpenObserve thật `v1.0.4` ở dev (đếm theo mức, tìm kiếm, chi tiết, 375 px) và có test tự động với một OpenObserve giả
+(`AdminMonitoringIntegrationTest`, `MonitoringServiceImplTest`, `monitoring.test.tsx`).
 
 **Chưa** kiểm chứng: cách hiển thị trên giao diện OpenObserve, cú pháp truy vấn dashboard, cảnh báo, và việc chạy
 profile `observability` của `docker-compose.prod.yml` trên một máy prod thật.

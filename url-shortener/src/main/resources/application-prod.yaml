@@ -123,6 +123,17 @@ app:
     redis-rate-limit: { sliding-window-size: 20, minimum-number-of-calls: 10, failure-rate-threshold: 50, wait-duration-in-open-state: PT10S, permitted-calls-in-half-open: 3 }
     kafka-publish:    { sliding-window-size: 20, minimum-number-of-calls: 10, failure-rate-threshold: 50, wait-duration-in-open-state: PT15S, permitted-calls-in-half-open: 3 }
 
+  # Trang "Giám sát" của admin: backend ĐỌC log từ OpenObserve. Để trống OPENOBSERVE_URL = tính năng tắt (trang báo chưa cấu hình).
+  # Dùng profile observability của compose: OPENOBSERVE_URL=http://openobserve:5080, OPENOBSERVE_UI_URL=địa chỉ admin mở được.
+  openobserve:
+    url: ${OPENOBSERVE_URL:}
+    ui-url: ${OPENOBSERVE_UI_URL:}
+    email: ${OPENOBSERVE_EMAIL:}
+    password: ${OPENOBSERVE_PASSWORD:}
+    organization: default
+    log-stream: default
+    timeout: PT5S
+
   rate-limit:
     anonymous-create: { limit: 10, window: PT1H }    # theo IP: tối đa 10 link ẩn danh mỗi giờ
     user-create: { limit: 100, window: PT1H }        # theo user: tối đa 100 link mỗi giờ

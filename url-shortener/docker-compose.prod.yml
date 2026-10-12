@@ -75,6 +75,12 @@ services:
       OTEL_EXPORTER_OTLP_AUTHORIZATION: ${OTEL_EXPORTER_OTLP_AUTHORIZATION:-}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-url-shortener}
       TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-0.1}
+      # Trang "Giám sát" của admin đọc log từ OpenObserve (trống OPENOBSERVE_URL = tắt). Với profile observability:
+      # OPENOBSERVE_URL=http://openobserve:5080
+      OPENOBSERVE_URL: ${OPENOBSERVE_URL:-}
+      OPENOBSERVE_UI_URL: ${OPENOBSERVE_UI_URL:-}
+      OPENOBSERVE_EMAIL: ${OPENOBSERVE_EMAIL:-}
+      OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:-}
       # Server
       SERVER_PORT: ${SERVER_PORT:-8080}
     # Không publish cổng app ra host: chỉ Caddy (cùng mạng Docker) gọi được app. Nếu publish thì client đi vòng qua

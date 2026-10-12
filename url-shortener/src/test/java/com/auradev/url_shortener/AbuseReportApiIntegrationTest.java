@@ -264,7 +264,87 @@ class AbuseReportApiIntegrationTest {
         assertThat(many).as("statements to list reports after adding 25 reported links").isEqualTo(few);
     }
 
+    // ===========================
+    //  CHUYỂN BÁO CÁO GIỮA CÁC TRẠNG THÁI (kéo thả ở giao diện)
+    // ===========================
+
+    @Test
+    void reportsCanBeMovedBetweenAllThreeStatesInEveryDirection() throws Exception {
+        String code = newLink();
+        report(code, "SPAM", null, uniqueIp());
+        report(code, "MALWARE", null, uniqueIp());
+
+        String[][] path = {{"OPEN", "DISMISSED"}, {"DISMISSED", "RESOLVED"}, {"RESOLVED", "OPEN"},
+                {"OPEN", "RESOLVED"}, {"RESOLVED", "DISMISSED"}, {"DISMISSED", "OPEN"}};
+        for (String[] step : path) {
+            Resp resp = move(code, step[0], step[1]);
+
+            assertThat(resp.status()).as(step[0] + " -> " + step[1]).isEqualTo(200);
+            assertThat(resp.body().get("data").asInt()).as(step[0] + " -> " + step[1]).isEqualTo(2);
+            assertThat(summaries(step[1])).as("now in " + step[1])
+                    .anyMatch(x -> x.get("shortCode").asText().equals(code) && x.get("reportCount").asInt() == 2);
+            assertThat(summaries(step[0])).as("no longer in " + step[0])
+                    .noneMatch(x -> x.get("shortCode").asText().equals(code));
+        }
+        // Chỉ chuyển báo cáo, không đụng tới trạng thái link
+        assertThat(urlRepository.findByShortCode(code).orElseThrow().getStatus().name()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void movingOnlyAffectsReportsInTheSourceStatus() throws Exception {
+        String code = newLink();
+        report(code, "SPAM", null, uniqueIp());
+        assertThat(move(code, "OPEN", "RESOLVED").status()).isEqualTo(200);
+        report(code, "PHISHING", null, uniqueIp()); // báo cáo mới đến sau khi đã xử lý: OPEN, còn cái cũ là RESOLVED
+
+        Resp resp = move(code, "RESOLVED", "DISMISSED");
+
+        assertThat(resp.body().get("data").asInt()).isEqualTo(1);
+        assertThat(openSummary(code).get("reportCount").asInt()).isEqualTo(1);
+        assertThat(summaries("DISMISSED")).anyMatch(x -> x.get("shortCode").asText().equals(code)
+                && x.get("reportCount").asInt() == 1);
+    }
+
+    @Test
+    void movingWithNothingInTheSourceStatusChangesNothingAndReturnsZero() throws Exception {
+        String code = newLink();
+        report(code, "SPAM", null, uniqueIp());
+
+        Resp resp = move(code, "RESOLVED", "DISMISSED"); // không có báo cáo nào đã xử lý
+
+        assertThat(resp.status()).isEqualTo(200);
+        assertThat(resp.body().get("data").asInt()).isZero();
+        assertThat(openSummary(code).get("reportCount").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void invalidMovesAreRejected() throws Exception {
+        String code = newLink();
+        report(code, "SPAM", null, uniqueIp());
+
+        assertThat(move(code, "OPEN", "OPEN").status()).isEqualTo(400);
+        assertThat(api.call("PUT", "/api/v1/admin/reports/" + code + "/move", admin, "{\"from\":\"OPEN\"}").status()).isEqualTo(400);
+        assertThat(api.call("PUT", "/api/v1/admin/reports/" + code + "/move", admin, "{\"from\":\"OPEN\",\"to\":\"NOPE\"}").status())
+                .isEqualTo(400);
+        assertThat(move("nope1234", "OPEN", "DISMISSED").status()).isEqualTo(404);
+        assertThat(openSummary(code).get("reportCount").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void onlyAdminsCanMoveReports() throws Exception {
+        String code = newLink();
+        String body = "{\"from\":\"OPEN\",\"to\":\"DISMISSED\"}";
+
+        assertThat(api.call("PUT", "/api/v1/admin/reports/" + code + "/move", null, body).status()).isEqualTo(401);
+        assertThat(api.call("PUT", "/api/v1/admin/reports/" + code + "/move", owner, body).status()).isEqualTo(403);
+    }
+
     // ---------- helpers ----------
+
+    private Resp move(String code, String from, String to) throws Exception {
+        return api.call("PUT", "/api/v1/admin/reports/" + code + "/move", admin,
+                "{\"from\":\"" + from + "\",\"to\":\"" + to + "\"}");
+    }
 
     private long statementsToListReports() throws Exception {
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();

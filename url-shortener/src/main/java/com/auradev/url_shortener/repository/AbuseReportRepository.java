@@ -64,6 +64,25 @@ public interface AbuseReportRepository extends JpaRepository<AbuseReport, Long> 
     List<AbuseReport> findTop100ByUrlIdAndStatusOrderByCreatedAtDesc(Long urlId, AbuseReportStatusEnum status);
 
     /**
+     * Chuyển mọi báo cáo của một link đang ở trạng thái {@code fromStatus} sang {@code toStatus} bằng một câu lệnh và trả về
+     * số báo cáo đã chuyển (0 nếu không còn báo cáo nào ở trạng thái đó, ví dụ admin khác vừa chuyển). Bulk update nên
+     * {@code updated_at}/{@code updated_by} set thủ công.
+     */
+    @Modifying
+    @Query(value = """
+            UPDATE abuse_reports
+            SET status = :toStatus, updated_at = :now, updated_by = :updatedBy
+            WHERE url_id = :urlId AND status = :fromStatus
+            """, nativeQuery = true)
+    int moveReports(
+            @Param("urlId") long urlId,
+            @Param("fromStatus") String fromStatus,
+            @Param("toStatus") String toStatus,
+            @Param("now") LocalDateTime now,
+            @Param("updatedBy") String updatedBy
+    );
+
+    /**
      * Đóng mọi báo cáo đang mở của một link (RESOLVED hoặc DISMISSED) bằng một câu lệnh và trả về số báo cáo
      * đã đóng. Bulk update nên {@code updated_at}/{@code updated_by} set thủ công.
      */

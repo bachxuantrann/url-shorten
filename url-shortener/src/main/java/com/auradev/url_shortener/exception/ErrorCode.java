@@ -14,6 +14,7 @@ import org.springframework.http.HttpStatus;
  *   <li>ERR_300–399  : Authorization</li>
  *   <li>ERR_400–499  : URL</li>
  *   <li>ERR_500–599  : Chống lạm dụng (rate limit, hạn mức, blocklist)</li>
+ *   <li>ERR_600–699  : Giám sát (đọc log từ OpenObserve)</li>
  *   <li>ERR_999      : Lỗi hệ thống</li>
  * </ul>
  */
@@ -73,6 +74,10 @@ public enum ErrorCode {
     BLOCKED_DOMAIN_EXISTS("ERR_504", "api.error.blocked_domain_exists", HttpStatus.CONFLICT),
     BLOCKED_DOMAIN_NOT_FOUND("ERR_505", "api.error.blocked_domain_not_found", HttpStatus.NOT_FOUND),
     INVALID_DOMAIN("ERR_506", "api.error.invalid_domain", HttpStatus.BAD_REQUEST),
+
+    // ===== MONITORING (600-699) =====
+    MONITORING_NOT_CONFIGURED("ERR_600", "api.error.monitoring_not_configured", HttpStatus.SERVICE_UNAVAILABLE),
+    MONITORING_UNAVAILABLE("ERR_601", "api.error.monitoring_unavailable", HttpStatus.BAD_GATEWAY),
 
     // ===== SYSTEM (999) =====
     UNKNOWN_ERROR("ERR_999", "api.error.unknown", HttpStatus.INTERNAL_SERVER_ERROR);

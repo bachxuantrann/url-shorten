@@ -109,6 +109,21 @@ public class AbuseReportServiceImpl implements AbuseReportService {
 
     @Override
     @Transactional
+    public int move(String shortCode, AbuseReportStatusEnum from, AbuseReportStatusEnum to) {
+        if (from == to) {
+            throw new AppException(ErrorCode.VALIDATION_FAILED);
+        }
+        Url url = find(shortCode);
+        String actor = auditorAware.getCurrentAuditor().orElse(AuditorAwareImpl.SYSTEM);
+        int moved = abuseReportRepository.moveReports(url.getId(), from.name(), to.name(), LocalDateTime.now(clock), actor);
+        if (moved > 0) {
+            log.info("[ADMIN] Abuse reports moved: shortCode={}, {} -> {}, count={}", shortCode, from, to, moved);
+        }
+        return moved;
+    }
+
+    @Override
+    @Transactional
     public int closeForUrl(long urlId, AbuseReportStatusEnum newStatus) {
         if (newStatus == AbuseReportStatusEnum.OPEN) {
             throw new IllegalArgumentException("a report cannot be closed as OPEN");

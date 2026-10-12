@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
  * <ol>
  *   <li>Trích xuất Bearer token từ header {@code Authorization}</li>
  *   <li>Validate chữ ký và thời hạn (qua {@link JwtService})</li>
- *   <li>Kiểm tra blacklist trong Redis (qua {@link TokenRedisService})</li>
+ *   <li>Kiểm tra blacklist và dấu "tài khoản bị khoá" trong Redis (qua {@link TokenRedisService})</li>
  *   <li>Trích xuất claims (userId, username, roles) từ JWT — <b>không query DB</b></li>
  *   <li>Tạo {@link UsernamePasswordAuthenticationToken} và set vào {@link SecurityContextHolder}</li>
  * </ol>
@@ -45,6 +45,9 @@ import java.util.stream.Collectors;
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    /** Request attribute báo "token hợp lệ nhưng tài khoản đang bị khoá"; {@code SecurityConfig} dùng nó để trả 403 ERR_104. */
+    public static final String ACCOUNT_LOCKED_ATTRIBUTE = "authAccountLocked";
 
     private final JwtService jwtService;
     private final TokenRedisService tokenRedisService;
@@ -82,8 +85,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 return;
             }
 
-            // 3. Trích xuất thông tin từ token — KHÔNG query DB
+            // 3. Tài khoản bị admin khoá: từ chối ngay, không đợi access token hết hạn. Vẫn không query DB, chỉ hỏi Redis.
+            //    Không set Authentication; entry point đọc attribute này để trả 403 ERR_104 thay vì 401 (401 làm client thử refresh).
             UUID userId       = jwtService.extractUserId(token);
+            if (tokenRedisService.isUserLocked(userId)) {
+                log.debug("Rejected token of locked user: userId={}", userId);
+                request.setAttribute(ACCOUNT_LOCKED_ATTRIBUTE, Boolean.TRUE);
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            // 4. Trích xuất thông tin từ token — KHÔNG query DB
             String username   = jwtService.extractUsername(token);
             Set<String> roles = jwtService.extractRoles(token);
 

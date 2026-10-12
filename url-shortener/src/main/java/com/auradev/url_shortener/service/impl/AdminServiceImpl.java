@@ -19,6 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.UUID;
+import com.auradev.url_shortener.config.JwtProperties;
+import com.auradev.url_shortener.utils.TokenRedisService;
+import java.time.Duration;
 
 @Slf4j
 @Service
@@ -26,6 +29,8 @@ import java.util.UUID;
 public class AdminServiceImpl  implements AdminService {
     private final UserRepository userRepository;
     private final UserMapper userMapper;
+    private final TokenRedisService tokenRedisService;
+    private final JwtProperties jwtProperties;
 
     @Override
     @Transactional(readOnly = true)
@@ -72,6 +77,9 @@ public class AdminServiceImpl  implements AdminService {
             return; // Đã bị khoá rồi
         }
         userRepository.updateStatus(userId, UserStatusEnum.BANNED);
+        // Có hiệu lực ngay: access token đã cấp bị từ chối ở request kế tiếp (không đợi hết hạn). Refresh token giữ nguyên: refresh
+        // đã chặn bằng status trong DB (403 ERR_104), nên người quay lại sau khi nghỉ lâu vẫn biết lý do thay vì bị đá ra âm thầm
+        tokenRedisService.markUserLocked(userId, Duration.ofMillis(jwtProperties.getAccessTokenExpiry()).plusMinutes(1));
         log.info("[ADMIN] User locked: userId={}", userId);
     }
 
@@ -83,6 +91,7 @@ public class AdminServiceImpl  implements AdminService {
             return; // Đang active rồi
         }
         userRepository.updateStatus(userId, UserStatusEnum.ACTIVE);
+        tokenRedisService.clearUserLocked(userId);
         log.info("[ADMIN] User unlocked: userId={}", userId);
     }
 

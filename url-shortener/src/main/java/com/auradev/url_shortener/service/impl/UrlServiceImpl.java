@@ -3,6 +3,7 @@ package com.auradev.url_shortener.service.impl;
 import com.auradev.url_shortener.config.ShortenerProperties;
 import com.auradev.url_shortener.dto.request.CreateUrlRequest;
 import com.auradev.url_shortener.dto.request.UpdateUrlRequest;
+import com.auradev.url_shortener.dto.response.AppealInfoResponse;
 import com.auradev.url_shortener.dto.response.PageResponse;
 import com.auradev.url_shortener.dto.response.UrlResponse;
 import com.auradev.url_shortener.entity.Url;
@@ -11,6 +12,7 @@ import com.auradev.url_shortener.exception.AppException;
 import com.auradev.url_shortener.exception.ErrorCode;
 import com.auradev.url_shortener.mapper.UrlMapper;
 import com.auradev.url_shortener.repository.UrlRepository;
+import com.auradev.url_shortener.service.LinkAppealService;
 import com.auradev.url_shortener.service.UrlService;
 import com.auradev.url_shortener.utils.LikePatterns;
 import com.auradev.url_shortener.utils.QrCodeGenerator;
@@ -23,6 +25,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -32,6 +35,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -77,6 +82,7 @@ public class UrlServiceImpl implements UrlService {
     private final PasswordEncoder     passwordEncoder;
     private final TransactionTemplate transactionTemplate;
     private final QrCodeGenerator     qrCodeGenerator;
+    private final LinkAppealService   linkAppealService;
 
     // ===========================
     //  CREATE
@@ -179,14 +185,35 @@ public class UrlServiceImpl implements UrlService {
     @Override
     @Transactional(readOnly = true)
     public UrlResponse get(UUID userId, String shortCode) {
-        return toResponse(findOwned(userId, shortCode));
+        Url url = findOwned(userId, shortCode);
+        UrlResponse response = toResponse(url);
+        attachAppeals(List.of(url), List.of(response));
+        return response;
     }
 
     @Override
     @Transactional(readOnly = true)
     public PageResponse<UrlResponse> list(UUID userId, String keyword, UrlStatusEnum status, Pageable pageable) {
         String pattern = toLikePattern(keyword);
-        return PageResponse.of(urlRepository.findOwnedByUser(userId, status, pattern, pageable).map(this::toResponse));
+        Page<Url> page = urlRepository.findOwnedByUser(userId, status, pattern, pageable);
+        Page<UrlResponse> responses = page.map(this::toResponse);
+        attachAppeals(page.getContent(), responses.getContent());
+        return PageResponse.of(responses);
+    }
+
+    /**
+     * Gắn kháng nghị hiện tại vào các link bị chặn của một trang, bằng đúng một câu truy vấn cho cả trang (và không
+     * truy vấn nào khi trang không có link bị chặn). {@code urls} và {@code responses} cùng thứ tự.
+     */
+    private void attachAppeals(List<Url> urls, List<UrlResponse> responses) {
+        List<Url> blocked = urls.stream().filter(u -> u.getStatus() == UrlStatusEnum.BLOCKED).toList();
+        if (blocked.isEmpty()) {
+            return;
+        }
+        Map<Long, AppealInfoResponse> appeals = linkAppealService.currentFor(blocked);
+        for (int i = 0; i < urls.size(); i++) {
+            responses.get(i).setAppeal(appeals.get(urls.get(i).getId()));
+        }
     }
 
     // ===========================

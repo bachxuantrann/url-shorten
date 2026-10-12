@@ -2,6 +2,7 @@ package com.auradev.url_shortener.controller;
 
 import com.auradev.url_shortener.config.RateLimitProperties;
 import com.auradev.url_shortener.constant.AppConstant;
+import com.auradev.url_shortener.dto.request.AppealRequest;
 import com.auradev.url_shortener.dto.request.CreateUrlRequest;
 import com.auradev.url_shortener.dto.request.SetLinkPasswordRequest;
 import com.auradev.url_shortener.dto.request.UpdateUrlRequest;
@@ -12,6 +13,7 @@ import com.auradev.url_shortener.enums.UrlStatusEnum;
 import com.auradev.url_shortener.exception.AppException;
 import com.auradev.url_shortener.exception.ErrorCode;
 import com.auradev.url_shortener.dto.response.UrlStatsResponse;
+import com.auradev.url_shortener.service.LinkAppealService;
 import com.auradev.url_shortener.service.UrlService;
 import com.auradev.url_shortener.service.UrlStatsService;
 import com.auradev.url_shortener.utils.QrCodeGenerator;
@@ -50,6 +52,7 @@ import java.util.UUID;
  *   <li>PUT    {@code /{shortCode}/enable}  — Bật lại link</li>
  *   <li>PUT    {@code /{shortCode}/password} — Đặt hoặc đổi mật khẩu bảo vệ link</li>
  *   <li>DELETE {@code /{shortCode}/password} — Gỡ mật khẩu</li>
+ *   <li>POST   {@code /{shortCode}/appeal} — Kháng nghị link bị chặn (body {@code {"message": "..."}})</li>
  *   <li>GET    {@code /{shortCode}/qr}   — Mã QR (PNG) của short URL, tham số {@code size} 128-1024</li>
  *   <li>GET    {@code /{shortCode}/stats} — Thống kê click theo ngày/quốc gia/thiết bị, tham số {@code from}/{@code to}</li>
  *   <li>DELETE {@code /{shortCode}}      — Xoá (mềm)</li>
@@ -67,6 +70,7 @@ public class UrlController {
 
     private final UrlService          urlService;
     private final UrlStatsService     urlStatsService;
+    private final LinkAppealService   linkAppealService;
     private final TranslatorUtils     translator;
     private final RateLimitService    rateLimitService;
     private final RateLimitProperties rateLimitProperties;
@@ -186,6 +190,23 @@ public class UrlController {
         UrlResponse updated = urlService.removePassword(userId, shortCode);
         String message = translator.toLocale("api.success.url_password_removed");
         return ResponseEntity.ok(ApiResponse.success(message, updated));
+    }
+
+    /**
+     * Kháng nghị việc link bị chặn (chỉ chủ link, link phải đang BLOCKED, mỗi link một kháng nghị đang chờ).
+     * Trả về link kèm trạng thái kháng nghị. Mỗi request đều tính vào giới hạn theo user.
+     */
+    @PostMapping("/{shortCode}/appeal")
+    public ResponseEntity<ApiResponse<UrlResponse>> appeal(
+            @PathVariable String shortCode,
+            @Valid @RequestBody AppealRequest body,
+            HttpServletRequest request
+    ) {
+        UUID userId = SecurityUtils.getAuthenticatedUserId(request);
+        rateLimitService.check("user-appeal", userId.toString(), rateLimitProperties.getAppealPerUser());
+        linkAppealService.submit(userId, shortCode, body.getMessage());
+        String message = translator.toLocale("api.success.appeal_sent");
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(message, urlService.get(userId, shortCode)));
     }
 
     /**

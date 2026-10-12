@@ -9,6 +9,7 @@ import com.auradev.url_shortener.exception.AppException;
 import com.auradev.url_shortener.exception.ErrorCode;
 import com.auradev.url_shortener.mapper.UrlMapper;
 import com.auradev.url_shortener.repository.UrlRepository;
+import com.auradev.url_shortener.service.LinkAppealService;
 import com.auradev.url_shortener.utils.QrCodeGenerator;
 import com.auradev.url_shortener.utils.ShortCodeGenerator;
 import com.auradev.url_shortener.utils.UrlCacheService;
@@ -75,7 +76,8 @@ class UrlServiceImplLinkExtrasTest {
         properties.setMaxLinksPerUser(0); // không liên quan tới các test này
         service = new UrlServiceImpl(urlRepository, urlMapper, shortCodeGenerator, properties, urlCacheService,
                 Clock.systemDefaultZone(), urlTargetPolicy, passwordEncoder,
-                new TransactionTemplate(mock(PlatformTransactionManager.class)), qrCodeGenerator);
+                new TransactionTemplate(mock(PlatformTransactionManager.class)), qrCodeGenerator,
+                mock(LinkAppealService.class));
 
         lenient().when(urlMapper.toUrlResponse(any(Url.class), anyString())).thenReturn(new UrlResponse());
     }

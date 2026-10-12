@@ -5,6 +5,7 @@ import com.auradev.url_shortener.dto.response.AdminUrlResponse;
 import com.auradev.url_shortener.dto.response.PageResponse;
 import com.auradev.url_shortener.entity.Url;
 import com.auradev.url_shortener.enums.AbuseReportStatusEnum;
+import com.auradev.url_shortener.enums.AppealStatusEnum;
 import com.auradev.url_shortener.enums.UrlStatusEnum;
 import com.auradev.url_shortener.exception.AppException;
 import com.auradev.url_shortener.exception.ErrorCode;
@@ -12,6 +13,7 @@ import com.auradev.url_shortener.mapper.UrlMapper;
 import com.auradev.url_shortener.repository.UrlRepository;
 import com.auradev.url_shortener.service.AbuseReportService;
 import com.auradev.url_shortener.service.AdminUrlService;
+import com.auradev.url_shortener.service.LinkAppealService;
 import com.auradev.url_shortener.utils.LikePatterns;
 import com.auradev.url_shortener.utils.UrlCacheService;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +40,7 @@ public class AdminUrlServiceImpl implements AdminUrlService {
     private final ShortenerProperties shortenerProperties;
     private final Clock               clock;
     private final AbuseReportService  abuseReportService;
+    private final LinkAppealService   linkAppealService;
 
     @Override
     @Transactional(readOnly = true)
@@ -78,6 +81,8 @@ public class AdminUrlServiceImpl implements AdminUrlService {
         url.setStatus(UrlStatusEnum.ACTIVE);
         url.setBlockedReason(null);
         urlCacheService.evictAfterCommit(shortCode);
+        // Gỡ chặn trực tiếp cũng trả lời kháng nghị đang chờ của chủ link (coi như được chấp nhận)
+        linkAppealService.closeForUrl(url.getId(), AppealStatusEnum.ACCEPTED);
 
         log.info("[ADMIN] URL unblocked: shortCode={}", shortCode);
         return toResponse(urlRepository.save(url));

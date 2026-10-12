@@ -127,6 +127,7 @@ app:
     unlock-per-link-and-ip: { limit: 10, window: PT15M }   # theo (link, IP): chặn đoán mật khẩu từ một nguồn
     unlock-per-link: { limit: 100, window: PT1H }    # theo link, mọi IP: chặn đoán mật khẩu phân tán
     report-per-ip: { limit: 5, window: PT1H }        # theo IP: tối đa 5 báo cáo lạm dụng mỗi giờ
+    appeal-per-user: { limit: 5, window: PT1H }      # theo user: tối đa 5 kháng nghị link bị chặn mỗi giờ
 
 # ===== Observability (OTLP -> OpenObserve) =====
 # Mặc định TẮT xuất dữ liệu (OTEL_EXPORT_ENABLED=false) để không có lỗi kết nối khi chưa chạy OpenObserve; trace id vẫn

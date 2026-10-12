@@ -75,6 +75,11 @@ public class SecurityConfig {
             .exceptionHandling(ex -> ex
                     // ===== 401 — Chưa xác thực =====
                     .authenticationEntryPoint((request, response, authException) -> {
+                        // Token hợp lệ nhưng tài khoản đang bị khoá: 403 ERR_104 (client hiện thông báo và đăng xuất, không thử refresh)
+                        if (Boolean.TRUE.equals(request.getAttribute(JwtAuthenticationFilter.ACCOUNT_LOCKED_ATTRIBUTE))) {
+                            writeErrorResponse(response, HttpServletResponse.SC_FORBIDDEN, ErrorCode.ACCOUNT_BANNED);
+                            return;
+                        }
                         ErrorCode errorCode = ErrorCode.UNAUTHORIZED;
                         writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, errorCode);
                     })

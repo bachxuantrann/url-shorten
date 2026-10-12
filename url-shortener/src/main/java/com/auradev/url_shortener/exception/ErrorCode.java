@@ -22,6 +22,8 @@ public enum ErrorCode {
 
     // ===== VALIDATION (001-099) =====
     VALIDATION_FAILED("ERR_001", "api.error.validation_failed", HttpStatus.BAD_REQUEST),
+    RESOURCE_NOT_FOUND("ERR_002", "api.error.resource_not_found", HttpStatus.NOT_FOUND),
+    METHOD_NOT_ALLOWED("ERR_003", "api.error.method_not_allowed", HttpStatus.METHOD_NOT_ALLOWED),
 
     // ===== USER (100-199) =====
     USER_NOT_FOUND("ERR_100", "api.error.user_not_found", HttpStatus.NOT_FOUND),
@@ -57,6 +59,9 @@ public enum ErrorCode {
     URL_PASSWORD_INCORRECT("ERR_409", "api.error.url_password_incorrect", HttpStatus.FORBIDDEN),
     INVALID_LINK_PASSWORD("ERR_410", "api.error.invalid_link_password", HttpStatus.BAD_REQUEST),
     INVALID_STATS_RANGE("ERR_411", "api.error.invalid_stats_range", HttpStatus.BAD_REQUEST),
+    APPEAL_ALREADY_OPEN("ERR_412", "api.error.appeal_already_open", HttpStatus.CONFLICT),
+    APPEAL_NOT_FOUND("ERR_413", "api.error.appeal_not_found", HttpStatus.NOT_FOUND),
+    APPEAL_NOT_OPEN("ERR_414", "api.error.appeal_not_open", HttpStatus.CONFLICT),
 
     // ===== ABUSE PROTECTION (500-599) =====
     RATE_LIMITED("ERR_500", "api.error.rate_limited", HttpStatus.TOO_MANY_REQUESTS),

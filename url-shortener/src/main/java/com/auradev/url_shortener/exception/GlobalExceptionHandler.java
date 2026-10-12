@@ -15,7 +15,9 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -204,6 +206,35 @@ public class GlobalExceptionHandler {
                 ApiResponse.error(errorCode, translatedMessage),
                 HttpStatus.BAD_REQUEST
         );
+    }
+
+    /**
+     * Đường dẫn không tồn tại (người dùng đã đăng nhập gõ sai URL API): 404 thay vì rơi xuống handler tổng quát (500).
+     * Người chưa đăng nhập vẫn nhận 401 từ Spring Security trước khi tới đây.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException ex) {
+        ErrorCode errorCode      = ErrorCode.RESOURCE_NOT_FOUND;
+        String translatedMessage = translator.toLocale(errorCode.getMessageKey());
+
+        log.debug("No resource: {}", ex.getResourcePath());
+        return new ResponseEntity<>(ApiResponse.error(errorCode, translatedMessage), errorCode.getHttpStatus());
+    }
+
+    /**
+     * Endpoint có tồn tại nhưng không hỗ trợ phương thức HTTP này: 405 kèm header {@code Allow} theo chuẩn HTTP.
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+        ErrorCode errorCode      = ErrorCode.METHOD_NOT_ALLOWED;
+        String translatedMessage = translator.toLocale(errorCode.getMessageKey());
+
+        log.debug("Method not supported: {}", ex.getMethod());
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(errorCode.getHttpStatus());
+        if (ex.getSupportedHttpMethods() != null && !ex.getSupportedHttpMethods().isEmpty()) {
+            response.allow(ex.getSupportedHttpMethods().toArray(new org.springframework.http.HttpMethod[0]));
+        }
+        return response.body(ApiResponse.error(errorCode, translatedMessage));
     }
 
     // ===========================

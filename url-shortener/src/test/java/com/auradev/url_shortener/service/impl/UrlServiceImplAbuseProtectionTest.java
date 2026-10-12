@@ -10,6 +10,7 @@ import com.auradev.url_shortener.exception.AppException;
 import com.auradev.url_shortener.exception.ErrorCode;
 import com.auradev.url_shortener.mapper.UrlMapper;
 import com.auradev.url_shortener.repository.UrlRepository;
+import com.auradev.url_shortener.service.LinkAppealService;
 import com.auradev.url_shortener.utils.QrCodeGenerator;
 import com.auradev.url_shortener.utils.ShortCodeGenerator;
 import com.auradev.url_shortener.utils.UrlCacheService;
@@ -73,7 +74,8 @@ class UrlServiceImplAbuseProtectionTest {
         properties.setMaxLinksPerUser(3);
         service = new UrlServiceImpl(urlRepository, urlMapper, shortCodeGenerator, properties,
                 urlCacheService, Clock.systemDefaultZone(), urlTargetPolicy, passwordEncoder,
-                new TransactionTemplate(mock(PlatformTransactionManager.class)), qrCodeGenerator);
+                new TransactionTemplate(mock(PlatformTransactionManager.class)), qrCodeGenerator,
+                mock(LinkAppealService.class));
     }
 
     // ===========================

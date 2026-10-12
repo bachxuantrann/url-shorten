@@ -21,6 +21,7 @@ import java.time.Duration;
  *     unlock-per-link-and-ip: { limit: 10,  window: PT15M }  # theo (link, IP), thử mật khẩu link
  *     unlock-per-link:        { limit: 100, window: PT1H }   # theo link, mọi IP
  *     report-per-ip:          { limit: 5,   window: PT1H }   # theo IP, báo cáo lạm dụng link
+ *     appeal-per-user:        { limit: 5,   window: PT1H }   # theo user, kháng nghị link bị chặn
  * </pre>
  *
  * <p>{@code limit <= 0} nghĩa là tắt luật đó.
@@ -49,6 +50,9 @@ public class RateLimitProperties {
 
     /** Báo cáo lạm dụng link: theo IP, mọi link. Chặn việc dùng form báo cáo để spam admin. */
     private Rule reportPerIp = new Rule(5, Duration.ofHours(1));
+
+    /** Kháng nghị link bị chặn: theo user. Chặn việc dùng form kháng nghị để spam admin. */
+    private Rule appealPerUser = new Rule(5, Duration.ofHours(1));
 
     /** Tối đa {@code limit} request trong mỗi cửa sổ {@code window} (cửa sổ cố định). */
     @Getter

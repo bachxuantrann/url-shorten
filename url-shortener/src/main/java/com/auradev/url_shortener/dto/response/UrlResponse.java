@@ -26,6 +26,8 @@ public class UrlResponse {
     private boolean passwordProtected;
     /** Lý do bị chặn (chỉ có khi status = BLOCKED) */
     private String blockedReason;
+    /** Kháng nghị hiện tại của link bị chặn (chờ xem xét hoặc đã bị từ chối); null khi không có. */
+    private AppealInfoResponse appeal;
     private LocalDateTime expiresAt;
     private long clickCount;
     private LocalDateTime createdAt;

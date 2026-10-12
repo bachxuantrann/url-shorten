@@ -36,6 +36,9 @@ public interface AppConstant {
     /** Prefix cache user info: USER:{userId} → UserResponse JSON */
     String REDIS_USER_CACHE_PREFIX       = "USER:";
 
+    /** Dấu "tài khoản đang bị admin khoá": {@code LOCK:{userId}} → "1", TTL = thời gian sống của access token. */
+    String REDIS_USER_LOCK_PREFIX        = "LOCK:";
+
 
 
     // ===== SECURITY =====

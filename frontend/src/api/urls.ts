@@ -54,3 +54,7 @@ export const removeLinkPassword = (code: string) =>
   request<UrlResponse>(`${BASE}/${enc(code)}/password`, { method: 'DELETE', auth: true });
 
 export const deleteUrl = (code: string) => request<void>(`${BASE}/${enc(code)}`, { method: 'DELETE', auth: true });
+
+/** Chủ link kháng nghị việc link bị chặn; trả về link kèm trạng thái kháng nghị. */
+export const appealLink = (code: string, message: string) =>
+  request<UrlResponse>(`${BASE}/${enc(code)}/appeal`, { method: 'POST', auth: true, body: { message } });

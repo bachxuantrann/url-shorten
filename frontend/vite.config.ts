@@ -16,5 +16,8 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
+    // Trang biểu đồ (chi tiết, tổng quan) được tải theo nhu cầu và kéo recharts: lần nạp đầu trong jsdom mất vài giây khi nhiều file test
+    // chạy song song, vượt mức 5 giây mặc định và làm test đầu tiên của file chập chờn. Hạn dưới này chỉ nới chỗ chờ, không làm test chậm đi.
+    testTimeout: 20000,
   },
 });

@@ -57,7 +57,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setLanguage,
       t: (key, params) => {
         // {brand} luôn có sẵn; replaceAll vì một chuỗi có thể chứa cùng tham số nhiều lần
-        let text = messages[language][key];
+        // Số ít: khi count là 1 và có bản `<khoá>.one` thì dùng nó ("1 link", không phải "1 links"). Tiếng Việt không chia số ít/nhiều
+        // nên các khoá .one của nó giống bản thường. count có thể là chuỗi đã định dạng theo ngôn ngữ ("1"), nên so sánh bằng chuỗi.
+        const one = params?.count !== undefined && String(params.count) === '1' ? (messages[language] as Record<string, string>)[`${key}.one`] : undefined;
+        let text = one ?? messages[language][key];
         for (const [k, v] of Object.entries({ brand: BRAND.name, ...params })) text = text.replaceAll(`{${k}}`, String(v));
         return text;
       },

@@ -488,6 +488,11 @@ dialog.modal[open] { animation: pop 0.16s ease-out; }
 .report-list .when { color: var(--muted); font-size: 0.82rem; }
 .status-code { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); margin-bottom: 6px; }
 
+/* ---------- Kháng nghị link bị chặn ---------- */
+.blocked-notice { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 6px; }
+.appeal-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); }
+.appeal-message { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); border-left: 3px solid var(--border-strong); font-size: 0.92rem; }
+
 /* ---------- Màn hình rất hẹp ---------- */
 @media (max-width: 520px) {
   .hide-sm { display: none !important; }

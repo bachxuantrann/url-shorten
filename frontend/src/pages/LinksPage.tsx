@@ -5,7 +5,7 @@ import { toErrorView } from '../api/errors';
 import type { PageResponse, UrlResponse, UrlStatus } from '../api/types';
 import { listUrls, type SortBy } from '../api/urls';
 import { useCreateLink } from '../components/AppLayout';
-import { LinkMenu, StatusBadge, useLinkModals } from '../components/LinkActions';
+import { BlockedNotice, LinkMenu, StatusBadge, useLinkModals } from '../components/LinkActions';
 import { Button } from '../components/ui/Button';
 import { CopyButton } from '../components/ui/CopyButton';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -314,11 +314,7 @@ function LinkRow({ link, open, onChanged }: RowProps) {
     <tr>
       <td>
         <LinkIdentity link={link} />
-        {link.status === 'BLOCKED' && link.blockedReason && (
-          <div className="field-error" style={{ marginTop: 6 }}>
-            {t('link.blocked', { reason: link.blockedReason })}
-          </div>
-        )}
+        <BlockedNotice link={link} open={open} />
       </td>
       <td className="num">{link.clickCount.toLocaleString(language)}</td>
       <td>
@@ -360,11 +356,7 @@ function LinkCard({ link, open, onChanged }: RowProps) {
         <span>{t('link.clicks', { count: link.clickCount.toLocaleString(language) })}</span>
         <span>{link.expiresAt ? t('link.expires', { date: time.format(link.expiresAt) }) : t('link.neverExpires')}</span>
       </div>
-      {link.status === 'BLOCKED' && link.blockedReason && (
-        <div className="field-error" style={{ marginTop: 6 }}>
-          {t('link.blocked', { reason: link.blockedReason })}
-        </div>
-      )}
+      <BlockedNotice link={link} open={open} />
       <div className="actions">
         <Link to={`/links/${encodeURIComponent(link.shortCode)}`} className="btn btn-secondary btn-sm">
           {t('act.stats')}

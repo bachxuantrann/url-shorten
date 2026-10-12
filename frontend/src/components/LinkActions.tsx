@@ -1,17 +1,18 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BarChart3, Lock, MoreHorizontal, Pencil, Power, PowerOff, QrCode, Trash2 } from 'lucide-react';
+import { BarChart3, Clock, Lock, MessageSquareText, MoreHorizontal, Pencil, Power, PowerOff, QrCode, Trash2 } from 'lucide-react';
 import { toErrorView } from '../api/errors';
 import type { UrlResponse } from '../api/types';
 import { disableUrl, enableUrl } from '../api/urls';
 import { useI18n } from '../i18n/I18nProvider';
 import type { MessageKey } from '../i18n/messages';
+import { AppealModal } from './AppealModal';
 import { DeleteLinkModal, EditLinkModal, PasswordModal, QrModal } from './modals';
 import { Button } from './ui/Button';
 import { Menu, MenuItem, MenuSeparator } from './ui/Menu';
 import { useToast } from './ui/Toast';
 
-type ModalKind = 'edit' | 'password' | 'qr' | 'delete';
+type ModalKind = 'edit' | 'password' | 'qr' | 'delete' | 'appeal';
 
 /** Huy hiệu trạng thái: màu theo ý nghĩa (xanh = đang chạy, vàng = hết hạn, đỏ = bị chặn, xám = đã tắt). */
 export function StatusBadge({ status }: { status: UrlResponse['status'] }) {
@@ -36,10 +37,51 @@ export function useLinkModals(onChanged: (updated: UrlResponse | null, from: Url
       <PasswordModal link={forKind('password')} onClose={close} onChanged={handle} />
       <QrModal link={forKind('qr')} onClose={close} />
       <DeleteLinkModal link={forKind('delete')} onClose={close} onChanged={handle} />
+      <AppealModal link={forKind('appeal')} onClose={close} onChanged={handle} />
     </>
   );
 
   return { open: (kind: ModalKind, link: UrlResponse) => setState({ kind, link }), modals };
+}
+
+interface BlockedNoticeProps {
+  link: UrlResponse;
+  open: (kind: ModalKind, link: UrlResponse) => void;
+  /** Hiện dòng "Quản trị viên đã chặn: lý do" (trang chi tiết đã có khung riêng cho dòng này). */
+  showReason?: boolean;
+}
+
+/**
+ * Phần dưới một link bị chặn: lý do chặn và trạng thái kháng nghị. Chưa kháng nghị hoặc đã bị từ chối thì có nút gửi
+ * (lại); đang chờ thì chỉ báo là đang chờ. Link không bị chặn thì không hiện gì.
+ */
+export function BlockedNotice({ link, open, showReason = true }: BlockedNoticeProps) {
+  const { t } = useI18n();
+  if (link.status !== 'BLOCKED') return null;
+  const appeal = link.appeal;
+
+  return (
+    <div className="blocked-notice">
+      {showReason && link.blockedReason && <div className="field-error">{t('link.blocked', { reason: link.blockedReason })}</div>}
+      {appeal?.status === 'OPEN' ? (
+        <div className="appeal-state">
+          <Clock size={14} aria-hidden="true" />
+          {t('link.appeal.pending')}
+        </div>
+      ) : (
+        <div className="appeal-state">
+          {appeal?.status === 'REJECTED' && (
+            <span className="break">
+              {appeal.response ? t('link.appeal.rejectedWith', { response: appeal.response }) : t('link.appeal.rejected')}
+            </span>
+          )}
+          <Button variant="secondary" size="sm" onClick={() => open('appeal', link)}>
+            {appeal ? t('link.appeal.again') : t('act.appeal')}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface LinkMenuProps {
@@ -86,6 +128,11 @@ export function LinkMenu({ link, open, onChanged, hideStats }: LinkMenuProps) {
           <MenuItem icon={<QrCode size={16} aria-hidden="true" />} onSelect={() => { close(); open('qr', link); }}>
             {t('act.qr')}
           </MenuItem>
+          {blocked && link.appeal?.status !== 'OPEN' && (
+            <MenuItem icon={<MessageSquareText size={16} aria-hidden="true" />} onSelect={() => { close(); open('appeal', link); }}>
+              {link.appeal ? t('link.appeal.again') : t('act.appeal')}
+            </MenuItem>
+          )}
           {!blocked && (
             <>
               <MenuItem icon={<Pencil size={16} aria-hidden="true" />} onSelect={() => { close(); open('edit', link); }}>

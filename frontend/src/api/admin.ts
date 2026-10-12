@@ -1,5 +1,5 @@
 import { request } from './client';
-import type { AbuseDetail, AbuseSummary, AdminUrl, AdminUser, BlockedDomain, PageResponse, ReportStatus, UrlStatus, UserStatus } from './types';
+import type { AbuseDetail, AbuseSummary, AdminAppeal, AdminUrl, AppealStatus, AdminUser, BlockedDomain, PageResponse, ReportStatus, UrlStats, UrlStatus, UserStatus } from './types';
 import type { SortBy } from './urls';
 
 const BASE = '/api/v1/admin';
@@ -26,6 +26,12 @@ export interface AdminListParams {
 
 export const listAdminUrls = (p: AdminListParams) =>
   request<PageResponse<AdminUrl>>(`${BASE}/urls?${query({ ...p })}`, { auth: true });
+
+export const getAdminUrl = (code: string) => request<AdminUrl>(`${BASE}/urls/${enc(code)}`, { auth: true });
+
+/** Thống kê của bất kỳ link nào (kể cả ẩn danh); from/to dạng yyyy-MM-dd, cả hai đầu đều tính, tối đa 366 ngày. */
+export const getAdminStats = (code: string, from: string, to: string) =>
+  request<UrlStats>(`${BASE}/urls/${enc(code)}/stats?from=${enc(from)}&to=${enc(to)}`, { auth: true });
 
 export const blockUrl = (code: string, reason: string) =>
   request<AdminUrl>(`${BASE}/urls/${enc(code)}/block`, { method: 'PUT', auth: true, body: { reason } });
@@ -58,6 +64,17 @@ export const resolveReports = (code: string) =>
 
 export const dismissReports = (code: string) =>
   request<number>(`${BASE}/reports/${enc(code)}/dismiss`, { method: 'PUT', auth: true });
+
+// ---------- Kháng nghị link bị chặn ----------
+
+export const listAppeals = (p: { status: AppealStatus; page: number; size: number }) =>
+  request<PageResponse<AdminAppeal>>(`${BASE}/appeals?${query({ ...p })}`, { auth: true });
+
+/** Chấp nhận = gỡ chặn link. */
+export const acceptAppeal = (id: number) => request<AdminAppeal>(`${BASE}/appeals/${id}/accept`, { method: 'PUT', auth: true });
+
+export const rejectAppeal = (id: number, response?: string) =>
+  request<AdminAppeal>(`${BASE}/appeals/${id}/reject`, { method: 'PUT', auth: true, body: response ? { response } : {} });
 
 // ---------- Người dùng ----------
 

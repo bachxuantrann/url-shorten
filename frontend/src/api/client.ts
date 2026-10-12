@@ -60,6 +60,15 @@ function safeRemove(k: string) {
   }
 }
 
+/** Mã lỗi của server khi tài khoản bị admin khoá (ACCOUNT_BANNED): khác với phiên hết hạn, cần nói rõ cho người dùng biết. */
+export const ACCOUNT_LOCKED_CODE = 'ERR_104';
+
+let onAccountLocked: (() => void) | null = null;
+/** AuthProvider đăng ký để được báo khi server nói tài khoản đã bị khoá (ở request thường hoặc lúc refresh). */
+export function setAccountLockedHandler(handler: (() => void) | null) {
+  onAccountLocked = handler;
+}
+
 let onSessionExpired: (() => void) | null = null;
 /** AuthProvider đăng ký để được báo khi refresh thất bại (phiên hết hạn). */
 export function setSessionExpiredHandler(handler: (() => void) | null) {
@@ -68,13 +77,19 @@ export function setSessionExpiredHandler(handler: (() => void) | null) {
 
 // Nhiều request cùng nhận 401 chỉ được refresh một lần (refresh token so khớp chính xác ở server)
 let refreshing: Promise<string | null> | null = null;
+// Lần refresh gần nhất thất bại vì tài khoản bị khoá (khác với refresh token hết hạn/bị thu hồi)
+let refreshLocked = false;
 
 async function doRefresh(): Promise<string | null> {
   const refreshToken = tokenStore.refresh();
   if (!refreshToken) return null;
+  refreshLocked = false;
   try {
     const res = await rawFetch('/api/v1/auth/refresh-token', 'POST', { refreshToken }, null);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      refreshLocked = (await parseBody<unknown>(res))?.code === ACCOUNT_LOCKED_CODE;
+      return null;
+    }
     const body = await parseBody<TokenResponse>(res);
     if (!body?.data?.accessToken) return null;
     tokenStore.set(body.data.accessToken);
@@ -133,8 +148,14 @@ async function send(path: string, { method = 'GET', body, auth = false }: Reques
         res = await rawFetch(path, method, body, token, accept);
       } else {
         tokenStore.clear();
-        onSessionExpired?.();
+        // Bị khoá thì nói rõ lý do; còn lại là phiên hết hạn thông thường
+        if (refreshLocked) onAccountLocked?.();
+        else onSessionExpired?.();
       }
+    } else if (auth && res.status === 403 && (await parseBody<unknown>(res.clone()))?.code === ACCOUNT_LOCKED_CODE) {
+      // Admin vừa khoá tài khoản: server từ chối ngay access token đang dùng (không đợi nó hết hạn)
+      tokenStore.clear();
+      onAccountLocked?.();
     }
     return res;
   } catch {

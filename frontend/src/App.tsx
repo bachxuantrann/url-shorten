@@ -1,9 +1,11 @@
 import { Suspense, type ReactElement } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { isAdmin, useAuth } from './auth/AuthProvider';
+import { AccountLockedDialog } from './components/AccountLockedDialog';
 import { AppLayout } from './components/AppLayout';
 import { PublicLayout } from './components/PublicLayout';
 import { useI18n } from './i18n/I18nProvider';
+import { AdminAppealsPage } from './pages/AdminAppealsPage';
 import { AdminDomainsPage } from './pages/AdminDomainsPage';
 import { AdminLinksPage } from './pages/AdminLinksPage';
 import { AdminReportsPage } from './pages/AdminReportsPage';
@@ -14,13 +16,15 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { ReportPage } from './pages/ReportPage';
 import { SettingsPage } from './pages/SettingsPage';
-import { OverviewPage } from './pages/OverviewPage';
 import { NotFoundPage, UnavailablePage, UnlockPage } from './pages/StatusPages';
 import { lazyWithReload } from './utils/lazyWithReload';
 
 // Trang chi tiết kéo theo thư viện biểu đồ (nặng): chỉ tải khi người dùng mở nó
 // (lazyWithReload tự tải lại trang một lần nếu chunk không còn sau khi deploy bản mới)
 const LinkDetailPage = lazyWithReload(() => import('./pages/LinkDetailPage').then((m) => ({ default: m.LinkDetailPage })));
+// Tổng quan và chi tiết link của admin cũng vẽ biểu đồ (recharts): nạp theo nhu cầu để bundle chính không phình ra gấp đôi
+const OverviewPage = lazyWithReload(() => import('./pages/OverviewPage').then((m) => ({ default: m.OverviewPage })));
+const AdminLinkDetailPage = lazyWithReload(() => import('./pages/AdminLinkDetailPage').then((m) => ({ default: m.AdminLinkDetailPage })));
 
 /** Trang cần đăng nhập: chưa đăng nhập thì sang /login và quay lại đúng trang sau khi vào. */
 function RequireAuth({ children }: { children: ReactElement }) {
@@ -44,6 +48,8 @@ function RequireAdmin({ children }: { children: ReactElement }) {
 export function App() {
   const { t } = useI18n();
   return (
+    <>
+    <AccountLockedDialog />
     <Routes>
       <Route element={<PublicLayout />}>
         <Route index element={<HomePage />} />
@@ -63,7 +69,14 @@ export function App() {
           </RequireAuth>
         }
       >
-        <Route path="overview" element={<OverviewPage />} />
+        <Route
+          path="overview"
+          element={
+            <Suspense fallback={<p className="muted">{t('common.loading')}</p>}>
+              <OverviewPage />
+            </Suspense>
+          }
+        />
         <Route path="dashboard" element={<LinksPage />} />
         <Route
           path="links/:code"
@@ -79,11 +92,23 @@ export function App() {
         <Route path="admin">
           <Route index element={<Navigate to="links" replace />} />
           <Route path="links" element={<RequireAdmin><AdminLinksPage /></RequireAdmin>} />
+          <Route
+            path="links/:code"
+            element={
+              <RequireAdmin>
+                <Suspense fallback={<p className="muted">{t('common.loading')}</p>}>
+                  <AdminLinkDetailPage />
+                </Suspense>
+              </RequireAdmin>
+            }
+          />
           <Route path="domains" element={<RequireAdmin><AdminDomainsPage /></RequireAdmin>} />
           <Route path="reports" element={<RequireAdmin><AdminReportsPage /></RequireAdmin>} />
+          <Route path="appeals" element={<RequireAdmin><AdminAppealsPage /></RequireAdmin>} />
           <Route path="users" element={<RequireAdmin><AdminUsersPage /></RequireAdmin>} />
         </Route>
       </Route>
     </Routes>
+    </>
   );
 }

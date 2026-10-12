@@ -5,7 +5,7 @@ import { ApiError } from '../api/client';
 import { toErrorView } from '../api/errors';
 import { getStats, getUrl } from '../api/stats';
 import type { UrlResponse, UrlStats } from '../api/types';
-import { LinkMenu, StatusBadge, useLinkModals } from '../components/LinkActions';
+import { BlockedNotice, LinkMenu, StatusBadge, useLinkModals } from '../components/LinkActions';
 import { DateRangeBar, KpiSkeleton, StatsBody, useStatsRange } from '../components/StatsView';
 import { Button, buttonClass } from '../components/ui/Button';
 import { CopyButton } from '../components/ui/CopyButton';
@@ -137,6 +137,7 @@ export function LinkDetailPage() {
                 <span>{t('link.blocked', { reason: link.blockedReason })}</span>
               </div>
             )}
+            <BlockedNotice link={link} open={open} showReason={false} />
             <div className="row">
               <Button variant="secondary" size="sm" onClick={() => open('qr', link)}>
                 <QrCode size={16} aria-hidden="true" />

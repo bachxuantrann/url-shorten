@@ -42,6 +42,16 @@ export interface PageResponse<T> {
   hasPrevious: boolean;
 }
 
+export type AppealStatus = 'OPEN' | 'ACCEPTED' | 'REJECTED';
+
+/** Kháng nghị hiện tại của một link bị chặn, chủ link thấy ở chính link đó (chờ xem xét hoặc đã bị từ chối). */
+export interface AppealInfo {
+  status: AppealStatus;
+  message: string;
+  response?: string;
+  createdAt: string;
+}
+
 export interface UrlResponse {
   shortCode: string;
   shortUrl: string;
@@ -49,6 +59,7 @@ export interface UrlResponse {
   status: UrlStatus;
   passwordProtected: boolean;
   blockedReason: string | null;
+  appeal?: AppealInfo;
   expiresAt: string | null;
   clickCount: number;
   createdAt: string;
@@ -93,6 +104,22 @@ export interface AbuseDetail {
   reason: AbuseReason;
   details?: string;
   createdAt: string;
+}
+
+/** Kháng nghị trong danh sách của admin: kèm link bị chặn, lý do chặn và chủ link. */
+export interface AdminAppeal {
+  id: number;
+  shortCode: string;
+  shortUrl: string;
+  originalUrl: string;
+  linkStatus: UrlStatus;
+  blockedReason?: string;
+  owner: string;
+  message: string;
+  status: AppealStatus;
+  response?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'BANNED';

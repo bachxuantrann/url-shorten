@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ExternalLink, Link2, Lock, ShieldBan, ShieldCheck } from 'lucide-react';
 import { listAdminUrls } from '../api/admin';
 import type { AdminUrl, UrlStatus } from '../api/types';
@@ -179,7 +180,9 @@ function LinkIdentity({ link }: { link: AdminUrl }) {
       </span>
       <div className="link-main">
         <div className="link-short">
-          <span className="truncate">{displayUrl(link.shortUrl)}</span>
+          <Link to={`/admin/links/${encodeURIComponent(link.shortCode)}`} className="truncate">
+            {displayUrl(link.shortUrl)}
+          </Link>
           <CopyButton text={link.shortUrl} />
           <a
             href={link.originalUrl}

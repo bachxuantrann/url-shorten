@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, Link2, ShieldBan } from 'lucide-react';
-import { dismissReports, listReports, reportDetails, resolveReports } from '../api/admin';
+import { ArrowRightLeft, ChevronDown, Link2, ShieldBan } from 'lucide-react';
+import { dismissReports, listReports, moveReports, reportDetails, resolveReports } from '../api/admin';
 import { toErrorView } from '../api/errors';
 import type { AbuseDetail, AbuseReason, AbuseSummary, ReportStatus } from '../api/types';
 import { AdminHead, ListSkeleton, LoadError, Pager } from '../components/admin';
 import { BlockModal } from '../components/AdminLinkModals';
 import { StatusBadge } from '../components/LinkActions';
 import { Button } from '../components/ui/Button';
+import { Menu, MenuItem } from '../components/ui/Menu';
 import { CopyButton } from '../components/ui/CopyButton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useToast } from '../components/ui/Toast';
@@ -23,6 +24,9 @@ const STATUSES: ReportStatus[] = ['OPEN', 'RESOLVED', 'DISMISSED'];
 /**
  * Quản trị: báo cáo lạm dụng gom theo link. Với mỗi link admin xem từng báo cáo, rồi chặn link (tự đóng báo cáo là đã
  * xử lý), đánh dấu đã xử lý hoặc bỏ qua (không phải lạm dụng).
+ *
+ * Một link chuyển được giữa cả ba tab theo mọi chiều: kéo thẻ thả lên nút tab, hoặc dùng menu "Chuyển tới…" (kéo thả HTML5 không
+ * chạy trên màn hình cảm ứng và không có cách dùng bàn phím, nên menu là đường đi chính cho các trường hợp đó).
  */
 export function AdminReportsPage() {
   const { t, language } = useI18n();
@@ -33,6 +37,8 @@ export function AdminReportsPage() {
   const [status, setStatus] = useState<ReportStatus>('OPEN');
   const [page, setPage] = useState(0);
   const [blocking, setBlocking] = useState<AbuseSummary | null>(null);
+  const [dragging, setDragging] = useState<AbuseSummary | null>(null);
+  const [overTab, setOverTab] = useState<ReportStatus | null>(null);
 
   const load = useCallback(() => listReports({ status, page, size: PAGE_SIZE }), [status, page]);
   const { data, loading, error, reload } = usePagedList(load, () => setPage((p) => Math.max(p - 1, 0)));
@@ -47,6 +53,21 @@ export function AdminReportsPage() {
       toast.error(toErrorView(e, t).message);
     }
   }
+
+  /** Chuyển báo cáo của link từ tab hiện tại sang `to`. 0 báo cáo được chuyển nghĩa là người khác vừa đổi chúng rồi. */
+  async function move(item: AbuseSummary, to: ReportStatus) {
+    if (to === status) return;
+    try {
+      const moved = await moveReports(item.shortCode, status, to);
+      if (moved === 0) toast.error(t('toast.reportsMoveStale'));
+      else toast.success(t('toast.reportsMoved', { status: t(`admin.reports.status.${to}` as MessageKey) }));
+      reload();
+    } catch (e) {
+      toast.error(toErrorView(e, t).message);
+    }
+  }
+
+  const canDropOn = (s: ReportStatus) => dragging !== null && s !== status;
 
   return (
     <div className="stack">
@@ -63,9 +84,24 @@ export function AdminReportsPage() {
                 key={s}
                 type="button"
                 aria-pressed={status === s}
+                className={[canDropOn(s) && 'drop-ok', overTab === s && canDropOn(s) && 'drop-over'].filter(Boolean).join(' ') || undefined}
                 onClick={() => {
                   setStatus(s);
                   setPage(0);
+                }}
+                onDragOver={(e) => {
+                  if (!canDropOn(s)) return;
+                  e.preventDefault(); // cho phép thả
+                  e.dataTransfer.dropEffect = 'move';
+                  setOverTab(s);
+                }}
+                onDragLeave={() => setOverTab((o) => (o === s ? null : o))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const item = dragging;
+                  setDragging(null);
+                  setOverTab(null);
+                  if (item && s !== status) void move(item, s);
                 }}
               >
                 {t(`admin.reports.status.${s}` as MessageKey)}
@@ -73,6 +109,8 @@ export function AdminReportsPage() {
             ))}
           </div>
         </div>
+
+        {data && content.length > 0 && <p className="muted small drag-hint">{t('admin.reports.dragHint')}</p>}
 
         {error && <LoadError message={error} onRetry={reload} />}
 
@@ -93,6 +131,12 @@ export function AdminReportsPage() {
                   status={status}
                   onBlock={() => setBlocking(item)}
                   onClose={(kind) => close(item, kind)}
+                  onMove={(to) => move(item, to)}
+                  onDragStart={() => setDragging(item)}
+                  onDragEnd={() => {
+                    setDragging(null);
+                    setOverTab(null);
+                  }}
                 />
               ))}
               <Pager data={data} count={content.length} onPage={setPage} />
@@ -112,16 +156,28 @@ interface CardProps {
   status: ReportStatus;
   onBlock: () => void;
   onClose: (kind: 'resolve' | 'dismiss') => void;
+  onMove: (to: ReportStatus) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
 }
 
-function ReportCard({ item, status, onBlock, onClose }: CardProps) {
+function ReportCard({ item, status, onBlock, onClose, onMove, onDragStart, onDragEnd }: CardProps) {
   const { t } = useI18n();
   const time = useServerTime();
   const [open, setOpen] = useState(false);
   const alreadyBlocked = item.linkStatus === 'BLOCKED';
 
   return (
-    <div className="link-card">
+    <div
+      className="link-card draggable-card"
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', item.shortCode); // Firefox không bắt đầu kéo nếu không có dữ liệu
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+    >
       <div className="link-cell">
         <span className="link-avatar" aria-hidden="true">
           <Link2 size={18} />
@@ -151,6 +207,32 @@ function ReportCard({ item, status, onBlock, onClose }: CardProps) {
       </div>
 
       <div className="actions">
+        <Menu
+          trigger={(props) => (
+            <Button variant="ghost" size="sm" aria-label={`${t('admin.reports.moveTo')} ${item.shortCode}`} {...props}>
+              <ArrowRightLeft size={16} aria-hidden="true" />
+              {t('admin.reports.moveTo')}
+            </Button>
+          )}
+        >
+          {(closeMenu) => (
+            <>
+              {(['OPEN', 'RESOLVED', 'DISMISSED'] as ReportStatus[])
+                .filter((s) => s !== status)
+                .map((s) => (
+                  <MenuItem
+                    key={s}
+                    onSelect={() => {
+                      closeMenu();
+                      onMove(s);
+                    }}
+                  >
+                    {t(`admin.reports.status.${s}` as MessageKey)}
+                  </MenuItem>
+                ))}
+            </>
+          )}
+        </Menu>
         <Button variant="ghost" size="sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
           <ChevronDown size={16} aria-hidden="true" style={{ transform: open ? 'rotate(180deg)' : undefined }} />
           {open ? t('admin.reports.hide') : t('admin.reports.view')}

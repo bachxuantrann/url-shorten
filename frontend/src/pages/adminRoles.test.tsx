@@ -93,4 +93,13 @@ describe('quản trị: đổi vai trò người dùng', () => {
 
     expect(await dialog().findByText('Phải còn ít nhất một quản trị viên đang hoạt động.')).toBeInTheDocument();
   });
+
+  it('bộ lọc trạng thái không có "Chưa kích hoạt" (chưa có đường nào tạo tài khoản như vậy)', async () => {
+    serve({ 'GET /api/v1/users/me': adminMe, 'GET /api/v1/admin/users': () => ok(pageOf([user('u-1', 'alice')] as never)) });
+    renderApp('/admin/users', { authed: true });
+    await screen.findByText('@alice · alice@example.com');
+
+    const filter = within(screen.getByRole('group', { name: 'Trạng thái' }));
+    expect(filter.getAllByRole('button').map((b) => b.textContent)).toEqual(['Tất cả', 'Đang hoạt động', 'Đã khoá']);
+  });
 });

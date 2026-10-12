@@ -18,7 +18,9 @@ import type { MessageKey } from '../i18n/messages';
 import { useDebounced } from '../utils/useDebounced';
 
 const PAGE_SIZE = 10;
-const STATUSES: UserStatus[] = ['ACTIVE', 'INACTIVE', 'BANNED'];
+// Bộ lọc không có INACTIVE: chưa có đường nào đặt tài khoản về trạng thái đó (đăng ký tạo ACTIVE ngay). Khi làm xác minh email
+// (đăng ký -> INACTIVE) thì thêm lại. Huy hiệu INACTIVE ở từng dòng vẫn giữ để dữ liệu sửa tay trong CSDL không hiện sai.
+const STATUSES: UserStatus[] = ['ACTIVE', 'BANNED'];
 
 type UserAction = 'lock' | 'unlock' | 'promote' | 'demote';
 

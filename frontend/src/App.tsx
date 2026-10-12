@@ -8,6 +8,7 @@ import { useI18n } from './i18n/I18nProvider';
 import { AdminAppealsPage } from './pages/AdminAppealsPage';
 import { AdminDomainsPage } from './pages/AdminDomainsPage';
 import { AdminLinksPage } from './pages/AdminLinksPage';
+import { AdminMonitoringPage } from './pages/AdminMonitoringPage';
 import { AdminReportsPage } from './pages/AdminReportsPage';
 import { AdminUsersPage } from './pages/AdminUsersPage';
 import { HomePage } from './pages/HomePage';
@@ -106,6 +107,7 @@ export function App() {
           <Route path="reports" element={<RequireAdmin><AdminReportsPage /></RequireAdmin>} />
           <Route path="appeals" element={<RequireAdmin><AdminAppealsPage /></RequireAdmin>} />
           <Route path="users" element={<RequireAdmin><AdminUsersPage /></RequireAdmin>} />
+          <Route path="monitoring" element={<RequireAdmin><AdminMonitoringPage /></RequireAdmin>} />
         </Route>
       </Route>
     </Routes>

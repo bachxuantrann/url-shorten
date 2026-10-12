@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
-import { BarChart3, CircleHelp, Flag, Globe, Layers, Link2, Menu as MenuIcon, MessageSquareText, Plus, Settings, Users } from 'lucide-react';
+import { Activity, BarChart3, CircleHelp, Flag, Globe, Layers, Link2, Menu as MenuIcon, MessageSquareText, Plus, Settings, Users } from 'lucide-react';
 import { isAdmin, useAuth } from '../auth/AuthProvider';
 import { useI18n } from '../i18n/I18nProvider';
 import { CreateLinkModal } from './modals';
@@ -48,6 +48,7 @@ export function AppLayout() {
         { to: '/admin/appeals', icon: MessageSquareText, label: t('nav.admin.appeals') },
         { to: '/admin/domains', icon: Globe, label: t('nav.admin.domains') },
         { to: '/admin/users', icon: Users, label: t('nav.admin.users') },
+        { to: '/admin/monitoring', icon: Activity, label: t('nav.admin.monitoring') },
       ]
     : [];
 

@@ -122,6 +122,32 @@ export interface AdminAppeal {
   updatedAt: string;
 }
 
+/** Trạng thái kết nối tới OpenObserve (backend không bao giờ gửi thông tin đăng nhập xuống). */
+export interface MonitoringStatus {
+  configured: boolean;
+  reachable: boolean;
+  uiUrl?: string;
+}
+
+export type LogLevel = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
+
+export interface LogSummary {
+  minutes: number;
+  levels: Record<LogLevel | 'TRACE', number>;
+  topExceptions: { type: string; count: number }[];
+}
+
+export interface LogEntry {
+  timestamp: string;
+  level?: string;
+  logger?: string;
+  message?: string;
+  traceId?: string;
+  exceptionType?: string;
+  exceptionMessage?: string;
+  exceptionStacktrace?: string;
+}
+
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'BANNED';
 
 export interface AdminUser {

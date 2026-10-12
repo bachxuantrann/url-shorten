@@ -387,7 +387,7 @@ dialog.modal[open] { animation: pop 0.16s ease-out; }
 .link-card { padding: 14px 16px; border-bottom: 1px solid var(--border); }
 .link-card:last-child { border-bottom: 0; }
 .link-card .meta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 8px; color: var(--muted); font-size: 0.85rem; }
-.link-card .actions { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+.link-card .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
 .link-target { max-width: none; }
 .pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.88rem; flex-wrap: wrap; }
 
@@ -487,6 +487,31 @@ dialog.modal[open] { animation: pop 0.16s ease-out; }
 .report-list li { padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 0.9rem; }
 .report-list .when { color: var(--muted); font-size: 0.82rem; }
 .status-code { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); margin-bottom: 6px; }
+
+/* ---------- Giám sát (log từ OpenObserve) ---------- */
+.level-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.level-card { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); cursor: pointer; text-align: left; opacity: 0.55; }
+.level-card[aria-pressed='true'] { opacity: 1; border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+.level-card.badge-danger[aria-pressed='true'] { border-color: var(--danger); }
+.level-card.badge-warning[aria-pressed='true'] { border-color: var(--warning); }
+.level-card.badge-primary[aria-pressed='true'] { border-color: var(--primary); }
+.level-count { font-size: 1.4rem; font-weight: 700; color: var(--text); }
+.level-name { font-size: 0.82rem; color: var(--muted); font-weight: 600; }
+.log-row { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.log-row:last-child { border-bottom: 0; }
+.log-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.log-message { margin-top: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.82rem; white-space: pre-wrap; }
+.log-clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.log-detail { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.log-pre { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 0.78rem; max-height: 280px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+@media (max-width: 520px) { .level-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---------- Kéo thẻ báo cáo giữa các tab ---------- */
+.draggable-card { cursor: grab; }
+.draggable-card:active { cursor: grabbing; }
+.drag-hint { margin: 0; padding: 8px 16px 0; }
+.segmented button.drop-ok { outline: 2px dashed var(--border-strong); outline-offset: -2px; }
+.segmented button.drop-over { outline-color: var(--primary); background: var(--primary-soft); color: var(--text); }
 
 /* ---------- Hành động trên người dùng (admin) ---------- */
 .user-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }

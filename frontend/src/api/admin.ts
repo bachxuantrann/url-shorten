@@ -1,5 +1,5 @@
 import { request } from './client';
-import type { AbuseDetail, AbuseSummary, AdminAppeal, AdminUrl, AppealStatus, AdminUser, BlockedDomain, PageResponse, ReportStatus, UrlStats, UrlStatus, UserStatus } from './types';
+import type { AbuseDetail, AbuseSummary, AdminAppeal, AdminUrl, AppealStatus, LogEntry, LogSummary, MonitoringStatus, AdminUser, BlockedDomain, PageResponse, ReportStatus, UrlStats, UrlStatus, UserStatus } from './types';
 import type { SortBy } from './urls';
 
 const BASE = '/api/v1/admin';
@@ -62,6 +62,10 @@ export const reportDetails = (code: string, status: ReportStatus) =>
 export const resolveReports = (code: string) =>
   request<number>(`${BASE}/reports/${enc(code)}/resolve`, { method: 'PUT', auth: true });
 
+/** Chuyển báo cáo của link từ trạng thái này sang trạng thái khác (mọi chiều); trả về số báo cáo đã chuyển, 0 nếu không còn báo cáo nào ở trạng thái nguồn. */
+export const moveReports = (code: string, from: ReportStatus, to: ReportStatus) =>
+  request<number>(`${BASE}/reports/${enc(code)}/move`, { method: 'PUT', auth: true, body: { from, to } });
+
 export const dismissReports = (code: string) =>
   request<number>(`${BASE}/reports/${enc(code)}/dismiss`, { method: 'PUT', auth: true });
 
@@ -75,6 +79,16 @@ export const acceptAppeal = (id: number) => request<AdminAppeal>(`${BASE}/appeal
 
 export const rejectAppeal = (id: number, response?: string) =>
   request<AdminAppeal>(`${BASE}/appeals/${id}/reject`, { method: 'PUT', auth: true, body: response ? { response } : {} });
+
+// ---------- Giám sát (log từ OpenObserve, backend là bên gọi) ----------
+
+export const monitoringStatus = () => request<MonitoringStatus>(`${BASE}/monitoring/status`, { auth: true });
+
+export const monitoringSummary = (minutes: number) => request<LogSummary>(`${BASE}/monitoring/summary?minutes=${minutes}`, { auth: true });
+
+/** `levels` là danh sách mức cách nhau bằng dấu phẩy (ERROR,WARN,...). */
+export const monitoringLogs = (p: { levels: string; keyword?: string; minutes: number; page: number; size: number }) =>
+  request<PageResponse<LogEntry>>(`${BASE}/monitoring/logs?${query({ ...p })}`, { auth: true });
 
 // ---------- Người dùng ----------
 

@@ -367,7 +367,7 @@ dialog.modal[open] { animation: pop 0.16s ease-out; }
 .link-table .col-creator { width: 130px; }
 .link-table .col-action, .data-table .col-action { width: 132px; }
 /* Bảng người dùng: nhãn "Mở khoá tài khoản" dài hơn nút của các bảng khác, cột phải đủ rộng để nút không tràn ra ngoài ô */
-.data-table .col-action.col-action-wide { width: 212px; }
+.data-table .col-action.col-action-wide { width: 330px; }
 .data-table .col-created { width: 130px; }
 .data-table .col-status { width: 150px; }
 .data-table .col-date { width: 150px; }
@@ -487,6 +487,9 @@ dialog.modal[open] { animation: pop 0.16s ease-out; }
 .report-list li { padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 0.9rem; }
 .report-list .when { color: var(--muted); font-size: 0.82rem; }
 .status-code { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); margin-bottom: 6px; }
+
+/* ---------- Hành động trên người dùng (admin) ---------- */
+.user-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 
 /* ---------- Kháng nghị link bị chặn ---------- */
 .blocked-notice { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 6px; }

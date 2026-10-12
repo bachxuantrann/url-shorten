@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
-import { Lock, LockOpen } from 'lucide-react';
-import { listAdminUsers, lockUser, unlockUser } from '../api/admin';
+import { Lock, LockOpen, ShieldCheck, ShieldOff } from 'lucide-react';
+import { changeUserRole, listAdminUsers, lockUser, unlockUser } from '../api/admin';
 import type { AdminUser, UserStatus } from '../api/types';
 import { useAuth } from '../auth/AuthProvider';
 import { AdminHead, ListSkeleton, LoadError, Pager, SearchBox } from '../components/admin';
@@ -20,7 +20,12 @@ import { useDebounced } from '../utils/useDebounced';
 const PAGE_SIZE = 10;
 const STATUSES: UserStatus[] = ['ACTIVE', 'INACTIVE', 'BANNED'];
 
-/** Quản trị: danh sách người dùng, tìm kiếm, lọc theo trạng thái, khoá / mở khoá tài khoản (không tự khoá chính mình). */
+type UserAction = 'lock' | 'unlock' | 'promote' | 'demote';
+
+/**
+ * Quản trị: danh sách người dùng, tìm kiếm, lọc theo trạng thái, khoá / mở khoá tài khoản, cấp / gỡ quyền admin (không tự
+ * khoá hay tự đổi vai trò của chính mình).
+ */
 export function AdminUsersPage() {
   const { t, language } = useI18n();
   useDocumentTitle(t('nav.admin.users'));
@@ -31,7 +36,7 @@ export function AdminUsersPage() {
   const [keyword, setKeyword] = useState('');
   const [status, setStatus] = useState<UserStatus | ''>('');
   const [page, setPage] = useState(0);
-  const [target, setTarget] = useState<{ kind: 'lock' | 'unlock'; user: AdminUser } | null>(null);
+  const [target, setTarget] = useState<{ kind: UserAction; user: AdminUser } | null>(null);
 
   const debouncedKeyword = useDebounced(keyword.trim());
   const load = useCallback(
@@ -42,7 +47,7 @@ export function AdminUsersPage() {
   const content = data?.content ?? [];
   const filtered = debouncedKeyword !== '' || status !== '';
 
-  const onAction = (kind: 'lock' | 'unlock', user: AdminUser) => setTarget({ kind, user });
+  const onAction = (kind: UserAction, user: AdminUser) => setTarget({ kind, user });
 
   return (
     <div className="stack">
@@ -143,7 +148,7 @@ export function AdminUsersPage() {
 interface ItemProps {
   user: AdminUser;
   isMe: boolean;
-  onAction: (kind: 'lock' | 'unlock', user: AdminUser) => void;
+  onAction: (kind: UserAction, user: AdminUser) => void;
 }
 
 function UserStatusBadge({ status }: { status: UserStatus }) {
@@ -169,7 +174,30 @@ function Identity({ user, isMe }: { user: AdminUser; isMe: boolean }) {
   );
 }
 
-function ActionButton({ user, isMe, onAction }: ItemProps) {
+function ActionButton(props: ItemProps) {
+  return (
+    <div className="user-actions">
+      <RoleButton {...props} />
+      <LockButton {...props} />
+    </div>
+  );
+}
+
+/** Cấp hoặc gỡ quyền admin; không tự đổi vai trò của mình (server cũng từ chối). */
+function RoleButton({ user, isMe, onAction }: ItemProps) {
+  const { t } = useI18n();
+  const admin = user.roles.includes('ROLE_ADMIN');
+  const kind: UserAction = admin ? 'demote' : 'promote';
+  const label = t(admin ? 'admin.user.demote' : 'admin.user.promote');
+  return (
+    <Button variant="secondary" size="sm" disabled={isMe} onClick={() => onAction(kind, user)} aria-label={`${label} ${user.username}`}>
+      {admin ? <ShieldOff size={16} aria-hidden="true" /> : <ShieldCheck size={16} aria-hidden="true" />}
+      {label}
+    </Button>
+  );
+}
+
+function LockButton({ user, isMe, onAction }: ItemProps) {
   const { t } = useI18n();
   if (user.status === 'BANNED') {
     return (
@@ -240,7 +268,7 @@ function UserCard(props: ItemProps) {
 // ===========================
 
 interface TargetProps {
-  target: { kind: 'lock' | 'unlock'; user: AdminUser } | null;
+  target: { kind: UserAction; user: AdminUser } | null;
   onClose: () => void;
   onDone: () => void;
 }
@@ -255,15 +283,27 @@ function LockModal({ target, onClose, onDone }: TargetProps) {
   );
 }
 
-function LockBody({ kind, user, onClose, onDone }: { kind: 'lock' | 'unlock'; user: AdminUser; onClose: () => void; onDone: () => void }) {
+function LockBody({ kind, user, onClose, onDone }: { kind: UserAction; user: AdminUser; onClose: () => void; onDone: () => void }) {
   const { t } = useI18n();
   const toast = useToast();
   const { busy, error, run } = useSubmit();
 
   async function confirm() {
-    const ok = await run(() => (kind === 'lock' ? lockUser(user.id) : unlockUser(user.id)));
+    const actions: Record<UserAction, () => Promise<unknown>> = {
+      lock: () => lockUser(user.id),
+      unlock: () => unlockUser(user.id),
+      promote: () => changeUserRole(user.id, 'ROLE_ADMIN'),
+      demote: () => changeUserRole(user.id, 'ROLE_USER'),
+    };
+    const toasts: Record<UserAction, MessageKey> = {
+      lock: 'toast.userLocked',
+      unlock: 'toast.userUnlocked',
+      promote: 'toast.userPromoted',
+      demote: 'toast.userDemoted',
+    };
+    const ok = await run(actions[kind]);
     if (ok) {
-      toast.success(t(kind === 'lock' ? 'toast.userLocked' : 'toast.userUnlocked'));
+      toast.success(t(toasts[kind]));
       onDone();
       onClose();
     }
@@ -281,7 +321,7 @@ function LockBody({ kind, user, onClose, onDone }: { kind: 'lock' | 'unlock'; us
         <Button variant="secondary" onClick={onClose}>
           {t('common.cancel')}
         </Button>
-        <Button variant={kind === 'lock' ? 'danger' : 'primary'} loading={busy} onClick={confirm}>
+        <Button variant={kind === 'lock' || kind === 'demote' ? 'danger' : 'primary'} loading={busy} onClick={confirm}>
           {t(`admin.user.${kind}.confirm` as MessageKey)}
         </Button>
       </div>

@@ -83,4 +83,8 @@ export const listAdminUsers = (p: { keyword?: string; status?: UserStatus; page:
 
 export const lockUser = (id: string) => request<void>(`${BASE}/users/${enc(id)}/lock`, { method: 'PUT', auth: true });
 
+/** Cấp (ROLE_ADMIN) hoặc gỡ (ROLE_USER) quyền quản trị; có hiệu lực khi token hiện tại của họ hết hạn. */
+export const changeUserRole = (id: string, role: 'ROLE_ADMIN' | 'ROLE_USER') =>
+  request<AdminUser>(`${BASE}/users/${enc(id)}/role`, { method: 'PUT', auth: true, body: { role } });
+
 export const unlockUser = (id: string) => request<void>(`${BASE}/users/${enc(id)}/unlock`, { method: 'PUT', auth: true });
